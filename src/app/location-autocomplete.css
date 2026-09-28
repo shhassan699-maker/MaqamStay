@@ -1,0 +1,124 @@
+.location-field,
+.location-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.location-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  border: 1px solid #d8dfd6;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 15px 35px rgb(12 48 42 / 14%);
+}
+
+.location-popover ul {
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  max-height: 235px;
+  overflow-y: auto;
+}
+
+.location-input-wrap input { padding-right: 40px; }
+.location-chevron {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.location-popover li {
+  padding: 11px 12px;
+  border-radius: 5px;
+  color: var(--deep);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.location-popover li:hover,
+.location-popover li.active {
+  background: #edf3ee;
+}
+
+.location-status {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.location-field .location-hint {
+  display: block;
+  min-height: 16px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.location-field .location-error {
+  display: block;
+  margin-top: 4px;
+  color: #a33e37;
+  font-size: 12px;
+}
+
+.phone-input-row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.phone-input-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-code-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 112px;
+  min-height: 46px;
+  padding: 0 8px;
+  border: 1px solid #cdd6cf;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--deep);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.phone-code-picker .fi {
+  flex: 0 0 auto;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(20 45 35 / 12%);
+}
+
+.phone-code-picker svg { flex: 0 0 auto; color: var(--muted); }
+.phone-code-picker:focus-within { outline: 3px solid #ba9454; outline-offset: 2px; }
+.phone-code-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 650px) {
+  .form-shell .field-grid { grid-template-columns: 1fr; }
+  .phone-code-picker { flex-basis: 102px; gap: 4px; }
+}

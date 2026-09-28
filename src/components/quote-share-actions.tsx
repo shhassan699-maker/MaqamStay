@@ -1,0 +1,4 @@
+"use client";
+import { useState } from "react";
+import { whatsappTo } from "@/lib/whatsapp";
+export function QuoteShareActions({url,customerNumber,requestNumber}:{url:string;customerNumber:string;requestNumber:string}){const [copied,setCopied]=useState(false);const message=`Assalamualaikum, your MaqamStay hotel options for request ${requestNumber} are ready. Please review them here: ${url}\n\nAvailability and booking are subject to confirmation.`;return <div className="quote-share-actions"><a className="table-link" href={url} target="_blank" rel="noopener noreferrer">Open quote ↗</a><button type="button" onClick={async()=>{try{await navigator.clipboard.writeText(url);setCopied(true)}catch{setCopied(false)}}}>{copied?"Copied":"Copy link"}</button><a className="table-link" href={whatsappTo(customerNumber,message)} target="_blank" rel="noopener noreferrer">Share via WhatsApp ↗</a></div>}

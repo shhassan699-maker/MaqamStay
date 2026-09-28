@@ -1,0 +1,3 @@
+export type EventName = "request_form_started"|"request_form_completed"|"whatsapp_clicked"|"quote_opened"|"hotel_option_interested";
+declare global { interface Window { dataLayer?: Record<string,unknown>[]; gtag?: (...args: unknown[]) => void; fbq?: (...args: unknown[]) => void } }
+export function track(event: EventName, detail: Record<string,unknown> = {}) { if (typeof window === "undefined"||/^\/(quote\/|admin|request\/success)/.test(window.location.pathname)) return; window.dataLayer?.push({event,...detail}); window.gtag?.("event",event,{...detail,page_location:`${window.location.origin}${window.location.pathname}`}); if (event==="request_form_completed") window.fbq?.("track","Lead"); }

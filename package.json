@@ -1,26 +1,47 @@
 {
-  "name": "stayksa",
+  "name": "maqamstay",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "postinstall": "prisma generate",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev": "prisma migrate dev",
+    "db:seed": "node --env-file=.env --import tsx prisma/seed.ts",
+    "admin:create": "node --env-file=.env --import tsx scripts/create-admin.ts"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.9.1",
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "decimal.js": "^10.6.0",
+    "flag-icons": "^7.5.0",
+    "lucide-react": "^1.48.0",
     "next": "16.3.6",
+    "prisma": "^6.19.3",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-hook-form": "^7.89.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.19.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }

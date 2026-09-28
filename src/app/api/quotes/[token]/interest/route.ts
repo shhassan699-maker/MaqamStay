@@ -1,0 +1,7 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { publicWriteGuard, failure } from "@/lib/http";
+import { rateLimited } from "@/lib/rate-limit";
+import { getPublicQuote } from "@/lib/public-quote";
+export async function POST(req:Request,{params}:{params:Promise<{token:string}>}){const guard=await publicWriteGuard();if(guard)return guard;if(await rateLimited("interest",15,60))return NextResponse.json({error:"Too many requests"},{status:429});try{const {token}=await params;const quote=await getPublicQuote(token);if(!quote)return NextResponse.json({error:"Quote not found"},{status:404});const {optionId}=z.object({optionId:z.uuid()}).parse(await req.json());if(!quote.options.some(o=>o.hotelOption.id===optionId))return NextResponse.json({error:"Option not in quote"},{status:400});const request=await db.quote.findUniqueOrThrow({where:{id:quote.id},select:{requestId:true,request:{select:{customerId:true,status:true}}}});await db.$transaction(async tx=>{await tx.customerInterest.create({data:{quoteId:quote.id,optionId,customerId:request.request.customerId}});await tx.activityLog.create({data:{requestId:request.requestId,type:"CUSTOMER_INTERESTED",description:`Customer expressed interest in option ${quote.options.find(o=>o.hotelOption.id===optionId)!.position}`}});if(request.request.status==="QUOTE_SENT")await tx.accommodationRequest.update({where:{id:request.requestId},data:{status:"CUSTOMER_INTERESTED"}})});return NextResponse.json({ok:true});}catch(error){return failure(error)}}

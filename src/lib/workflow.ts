@@ -1,0 +1,3 @@
+import type { RequestStatus } from "@prisma/client";
+export const allowedTransitions:Record<RequestStatus,RequestStatus[]>={NEW:["SUPPLIER_REQUESTED","OPTIONS_RECEIVED","CANCELLED"],SUPPLIER_REQUESTED:["OPTIONS_RECEIVED","CANCELLED"],OPTIONS_RECEIVED:["QUOTE_SENT","CANCELLED"],QUOTE_SENT:["CUSTOMER_INTERESTED","PAYMENT_PENDING","CANCELLED"],CUSTOMER_INTERESTED:["PAYMENT_PENDING","BOOKED","CANCELLED"],PAYMENT_PENDING:["BOOKED","CANCELLED"],BOOKED:["CANCELLED"],CANCELLED:[]};
+export function canTransition(from:RequestStatus,to:RequestStatus){return from===to||allowedTransitions[from].includes(to)}

@@ -18,13 +18,44 @@ enum RequestStatus {
   CANCELLED
 }
 
-enum Destination { MAKKAH MADINAH JEDDAH RIYADH OTHER }
-enum Currency { PKR SAR }
-enum BudgetType { PER_NIGHT TOTAL }
-enum MarkupType { FIXED PERCENTAGE }
-enum BookingStatus { PENDING CONFIRMED COMPLETED CANCELLED REFUNDED }
-enum PaymentStatus { NOT_REQUIRED PENDING PAID_TO_SUPPLIER PARTIAL REFUNDED }
-enum CommissionStatus { EXPECTED RECEIVED }
+enum Destination {
+  MAKKAH
+  MADINAH
+  JEDDAH
+  RIYADH
+  OTHER
+}
+enum Currency {
+  PKR
+  SAR
+}
+enum BudgetType {
+  PER_NIGHT
+  TOTAL
+}
+enum MarkupType {
+  FIXED
+  PERCENTAGE
+}
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID_TO_SUPPLIER
+  PARTIAL
+  REFUNDED
+}
+enum CommissionStatus {
+  EXPECTED
+  RECEIVED
+  VOID
+}
 
 model AdminUser {
   id String @id @default(uuid()) @db.Uuid
@@ -37,6 +68,8 @@ model AdminUser {
   assignedRequests AccommodationRequest[] @relation("AssignedRequests")
   notes AdminNote[]
   activities ActivityLog[]
+  sessions AdminSession[]
+  reviews Review[]
 }
 
 model AdminSession {
@@ -52,7 +85,7 @@ model AdminSession {
 model Customer {
   id String @id @default(uuid()) @db.Uuid
   name String
-  whatsapp String
+  whatsapp String @unique
   phone String
   email String?
   city String
@@ -62,7 +95,6 @@ model Customer {
   requests AccommodationRequest[]
   interests CustomerInterest[]
   bookings Booking[]
-  @@index([whatsapp])
 }
 
 model RequestCounter {
@@ -83,6 +115,7 @@ model AccommodationRequest {
   budgetAmount Decimal? @db.Decimal(14, 2)
   budgetCurrency Currency?
   preferences String[]
+  preferredLocation String?
   requirements String? @db.Text
   privacyAcceptedAt DateTime
   assignedToId String? @db.Uuid
@@ -231,8 +264,25 @@ model Booking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   commissions Commission[]
+  review Review?
   @@index([status, createdAt])
   @@index([supplierId])
+}
+
+model Review {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @unique @db.Uuid
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  createdById String @db.Uuid
+  createdBy AdminUser @relation(fields: [createdById], references: [id])
+  displayName String
+  rating Int
+  body String @db.Text
+  consentConfirmedAt DateTime
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([publishedAt, createdAt])
 }
 
 model Commission {
