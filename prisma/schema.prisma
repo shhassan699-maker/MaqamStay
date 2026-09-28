@@ -1,0 +1,279 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RequestStatus {
+  NEW
+  SUPPLIER_REQUESTED
+  OPTIONS_RECEIVED
+  QUOTE_SENT
+  CUSTOMER_INTERESTED
+  PAYMENT_PENDING
+  BOOKED
+  CANCELLED
+}
+
+enum Destination { MAKKAH MADINAH JEDDAH RIYADH OTHER }
+enum Currency { PKR SAR }
+enum BudgetType { PER_NIGHT TOTAL }
+enum MarkupType { FIXED PERCENTAGE }
+enum BookingStatus { PENDING CONFIRMED COMPLETED CANCELLED REFUNDED }
+enum PaymentStatus { NOT_REQUIRED PENDING PAID_TO_SUPPLIER PARTIAL REFUNDED }
+enum CommissionStatus { EXPECTED RECEIVED }
+
+model AdminUser {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  email String @unique
+  passwordHash String
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  assignedRequests AccommodationRequest[] @relation("AssignedRequests")
+  notes AdminNote[]
+  activities ActivityLog[]
+}
+
+model AdminSession {
+  id String @id @default(uuid()) @db.Uuid
+  tokenHash String @unique
+  adminId String @db.Uuid
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([adminId, expiresAt])
+}
+
+model Customer {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  whatsapp String
+  phone String
+  email String?
+  city String
+  country String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  requests AccommodationRequest[]
+  interests CustomerInterest[]
+  bookings Booking[]
+  @@index([whatsapp])
+}
+
+model RequestCounter {
+  year Int @id
+  value Int @default(0)
+}
+
+model AccommodationRequest {
+  id String @id @default(uuid()) @db.Uuid
+  requestNumber String @unique
+  customerId String @db.Uuid
+  customer Customer @relation(fields: [customerId], references: [id])
+  status RequestStatus @default(NEW)
+  adults Int
+  children Int
+  rooms Int
+  budgetType BudgetType?
+  budgetAmount Decimal? @db.Decimal(14, 2)
+  budgetCurrency Currency?
+  preferences String[]
+  requirements String? @db.Text
+  privacyAcceptedAt DateTime
+  assignedToId String? @db.Uuid
+  assignedTo AdminUser? @relation("AssignedRequests", fields: [assignedToId], references: [id])
+  supplierId String? @db.Uuid
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  destinations RequestDestination[]
+  hotelOptions HotelOption[]
+  quotes Quote[]
+  bookings Booking[]
+  notes AdminNote[]
+  activities ActivityLog[]
+  @@index([status, createdAt])
+  @@index([customerId, createdAt])
+  @@index([supplierId])
+}
+
+model RequestDestination {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request AccommodationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  destination Destination
+  otherName String?
+  checkIn DateTime @db.Date
+  checkOut DateTime @db.Date
+  @@index([destination, checkIn])
+  @@index([requestId])
+}
+
+model Supplier {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  contactName String?
+  phone String
+  whatsapp String?
+  email String?
+  notes String? @db.Text
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  requests AccommodationRequest[]
+  hotelOptions HotelOption[]
+  bookings Booking[]
+}
+
+model HotelOption {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request AccommodationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplierId String @db.Uuid
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  hotelName String
+  destination Destination
+  roomType String
+  stars Int?
+  distance String?
+  mealPlan String?
+  checkIn DateTime @db.Date
+  checkOut DateTime @db.Date
+  nights Int
+  imageUrl String?
+  features String[]
+  cancellationTerms String?
+  availabilityNotes String? @db.Text
+  internalNotes String? @db.Text
+  currency Currency
+  supplierPrice Decimal @db.Decimal(14, 2)
+  taxesFees Decimal @default(0) @db.Decimal(14, 2)
+  markupType MarkupType
+  markupValue Decimal @db.Decimal(14, 2)
+  customerPrice Decimal @db.Decimal(14, 2)
+  expectedCommission Decimal @db.Decimal(14, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  quoteOptions QuoteOption[]
+  interests CustomerInterest[]
+  bookings Booking[]
+  @@index([requestId, createdAt])
+}
+
+model Quote {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request AccommodationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
+  shareToken String @unique
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  openedAt DateTime?
+  options QuoteOption[]
+  interests CustomerInterest[]
+  @@index([requestId, createdAt])
+}
+
+model QuoteOption {
+  id String @id @default(uuid()) @db.Uuid
+  quoteId String @db.Uuid
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  hotelOptionId String @db.Uuid
+  hotelOption HotelOption @relation(fields: [hotelOptionId], references: [id])
+  position Int
+  recommended Boolean @default(false)
+  label String?
+  finalPrice Decimal @db.Decimal(14, 2)
+  @@unique([quoteId, hotelOptionId])
+  @@unique([quoteId, position])
+}
+
+model CustomerInterest {
+  id String @id @default(uuid()) @db.Uuid
+  quoteId String @db.Uuid
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  optionId String @db.Uuid
+  option HotelOption @relation(fields: [optionId], references: [id])
+  customerId String @db.Uuid
+  customer Customer @relation(fields: [customerId], references: [id])
+  createdAt DateTime @default(now())
+  @@index([quoteId, createdAt])
+}
+
+model Booking {
+  id String @id @default(uuid()) @db.Uuid
+  reference String @unique
+  requestId String @db.Uuid
+  request AccommodationRequest @relation(fields: [requestId], references: [id])
+  customerId String @db.Uuid
+  customer Customer @relation(fields: [customerId], references: [id])
+  optionId String @db.Uuid
+  option HotelOption @relation(fields: [optionId], references: [id])
+  supplierId String @db.Uuid
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  supplierReference String?
+  checkIn DateTime @db.Date
+  checkOut DateTime @db.Date
+  currency Currency
+  sellingPrice Decimal @db.Decimal(14, 2)
+  supplierCost Decimal @db.Decimal(14, 2)
+  expectedCommission Decimal @db.Decimal(14, 2)
+  actualCommission Decimal? @db.Decimal(14, 2)
+  paymentStatus PaymentStatus @default(NOT_REQUIRED)
+  status BookingStatus @default(PENDING)
+  confirmationNotes String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  commissions Commission[]
+  @@index([status, createdAt])
+  @@index([supplierId])
+}
+
+model Commission {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @db.Uuid
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amount Decimal @db.Decimal(14, 2)
+  currency Currency
+  status CommissionStatus @default(EXPECTED)
+  receivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+}
+
+model AdminNote {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request AccommodationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorId String @db.Uuid
+  author AdminUser @relation(fields: [authorId], references: [id])
+  body String @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([requestId, createdAt])
+}
+
+model ActivityLog {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request AccommodationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actorId String? @db.Uuid
+  actor AdminUser? @relation(fields: [actorId], references: [id])
+  type String
+  description String
+  createdAt DateTime @default(now())
+  @@index([requestId, createdAt])
+}
+
+model RateLimit {
+  key String @id
+  count Int
+  windowStart DateTime
+}
