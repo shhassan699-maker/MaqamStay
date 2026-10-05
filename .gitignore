@@ -40,3 +40,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Additional environment templates and local verification output
+!.env.staging.example
+node_modules/
+.next/
+test-results/
+playwright-report/

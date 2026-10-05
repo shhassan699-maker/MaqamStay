@@ -1,5 +1,7 @@
 # MaqamStay
 
+Published hotel catalog browsing now integrates server-to-server with the independent Inventory Admin. See [inventory integration setup and security](docs/inventory-integration.md). The customer retains its own PostgreSQL database and assisted-request workflow; no inventory MongoDB/admin credentials are shared.
+
 MaqamStay is an assisted Saudi accommodation request and booking lead platform. Travelers send their plans, staff check options with suppliers, prepare customer quotes, and coordinate bookings manually through WhatsApp. There is no live inventory or payment processing.
 
 ## Stack and architecture
@@ -29,16 +31,16 @@ The seed is idempotent for its named records and uses `.test` email domains and 
 
 ## Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string; required for all request and CRM writes |
-| `SESSION_SECRET` | At least 32 characters; HMAC key for rate-limit identifiers |
-| `NEXT_PUBLIC_SITE_URL` | Canonical site origin, such as `https://maqamstay.example` |
-| `NEXT_PUBLIC_WHATSAPP_NUMBER` | Click-to-chat number in international digits only, with no `+` or spaces |
-| `NEXT_PUBLIC_GA_ID` | Optional Google Analytics measurement ID (`G-...`) |
-| `NEXT_PUBLIC_META_PIXEL_ID` | Optional Meta Pixel ID |
-| `NEXT_PUBLIC_GOOGLE_ADS_ID` | Optional Google Ads ID (`AW-...`) |
-| `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` | Only for the `admin:create` command |
+| Variable                                      | Purpose                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`                                | PostgreSQL connection string; required for all request and CRM writes    |
+| `SESSION_SECRET`                              | At least 32 characters; HMAC key for rate-limit identifiers              |
+| `NEXT_PUBLIC_SITE_URL`                        | Canonical site origin, such as `https://maqamstay.example`               |
+| `NEXT_PUBLIC_WHATSAPP_NUMBER`                 | Click-to-chat number in international digits only, with no `+` or spaces |
+| `NEXT_PUBLIC_GA_ID`                           | Optional Google Analytics measurement ID (`G-...`)                       |
+| `NEXT_PUBLIC_META_PIXEL_ID`                   | Optional Meta Pixel ID                                                   |
+| `NEXT_PUBLIC_GOOGLE_ADS_ID`                   | Optional Google Ads ID (`AW-...`)                                        |
+| `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` | Only for the `admin:create` command                                      |
 
 The `NEXT_PUBLIC_` values are visible in the client bundle. Never put passwords, supplier data, margin settings or API secrets in them. Set the site URL to the exact public HTTPS origin in production. The `.env` file is gitignored; `.env.example` is safe to commit.
 
@@ -87,5 +89,5 @@ The public destination photography is stored in `public/images` and shown only a
 - A local PostgreSQL database is required to exercise request submission and CRM workflows.
 
 Next practical steps are a staging database smoke test, operator review of the complete WhatsApp handoff, an image upload service, stronger deployment-specific rate limiting, and a privacy/terms review for the launch jurisdiction.
-#   M a q a m S t a y  
- 
+
+# MaqamStay
