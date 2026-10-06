@@ -72,11 +72,20 @@ try {
     "--entrypoint",
     "node",
     release,
-    "--import",
-    "tsx",
     "-e",
-    "require('@prisma/client');require('bcryptjs');require('fs').accessSync('node_modules/prisma/build/index.js');",
+    "const f=require('fs'),a=require('assert');require('@prisma/client');require('bcryptjs');f.accessSync('node_modules/prisma/build/index.js');f.accessSync('scripts/create-admin.mjs');a(!f.existsSync('node_modules/eslint'));",
   );
+  const prismaVersion = docker(
+    "run",
+    "--rm",
+    "--entrypoint",
+    "node",
+    release,
+    "node_modules/prisma/build/index.js",
+    "--version",
+  );
+  assert(prismaVersion.includes("Schema Engine"));
+  assert(!/could not|unknown|not found/i.test(prismaVersion));
   docker(
     "run",
     "--rm",

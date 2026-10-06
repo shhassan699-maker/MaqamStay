@@ -13,7 +13,7 @@ Customer is based on approved commit 5669a2ce51145ba702c7ce01786ed3a27a834496; I
 | ghcr.io/shhassan699-maker/maqamstay-inventory-admin  | Inventory deploy/admin.Dockerfile | next start, 3100                         |
 | ghcr.io/shhassan699-maker/maqamstay-inventory-api    | Inventory deploy/api.Dockerfile   | Nest API, 4000                           |
 
-All Node images retain USER node. Base Node 24 bookworm-slim is pinned by registry manifest digest, with npm ci lockfiles. There is no standalone Next output. Customer config is compiled to JavaScript before runtime dependencies are pruned. Release includes Prisma CLI, schema/migrations, tsx and bootstrap source; runtime excludes bootstrap tooling/source. Current public font builds need Google font network access. Image digests, not repeated rebuilds, define a release.
+All Node images retain USER node. Base Node 24 bookworm-slim is pinned by registry manifest digest, with npm ci lockfiles. There is no standalone Next output. Customer config is compiled to JavaScript before runtime dependencies are pruned. Release includes Prisma CLI, schema/migrations and a compiled bootstrap script, with development dependencies pruned; runtime excludes bootstrap tooling/source. The inspected pinned base is Node 24.21.0. Customer adds pinned Debian OpenSSL/libssl3 and CA packages required by Prisma; update these reviewed pins when Debian repositories retire versions. Current public font builds need Google font network access. Image digests, not repeated rebuilds, define a release.
 
 ## Environment and secret boundaries
 
@@ -45,7 +45,7 @@ Catalog hostname accepts exactly seven documented GET route patterns, including 
 
 ## CI and GHCR
 
-CI uses GitHub-hosted Ubuntu runners with pinned action commits and Node 24.12.0. Both repositories run install, lint, strict typecheck, formatting, unit/integration tests and production builds. Inventory additionally builds the pinned customer checkout, runs Chromium publishing workflows and scans both browser bundles.
+CI uses GitHub-hosted Ubuntu runners with pinned action commits and Node 24.21.0. Both repositories run install, lint, strict typecheck, formatting, unit/integration tests and production builds. Inventory additionally builds the pinned customer checkout, runs Chromium publishing workflows and scans both browser bundles.
 
 Disposable image tests build all four images across the two workflows, validate USER node, tmp/cache writes, image history/config/canary exclusion and loopback HTTP checks. Inventory uses a new temporary Mongo replica container and test-named loopback database; it shares that temporary network namespace with the API so the existing test URI guard remains intact. Local test storage is under /tmp. It tests the real private admin rewrite and the Nginx route snippets using an HTTP-only harness: no certificates are generated. No CI job receives staging/production credentials or invokes mutation CLIs.
 
@@ -72,10 +72,10 @@ docker compose --project-name maqamstay-staging --env-file /srv/maqamstay/stagin
 # Commands below are future operator jobs, not Phase 1 actions.
 # Use the same project/env/file flags shown above for each Compose command.
 docker compose ... run --rm customer-release npm run db:migrate
-docker compose ... run --rm customer-release node --import tsx scripts/create-admin.ts
+docker compose ... run --rm customer-release node scripts/create-admin.mjs
 ```
 
-The customer bootstrap command uses injected runtime environment rather than the existing local --env-file=.env npm helper. It upserts an account and may reset an existing account's password; verify the intended email first and remove temporary ADMIN_PASSWORD afterward.
+The release bootstrap compiles the existing TypeScript source without executing it during build. The customer bootstrap command uses injected runtime environment rather than the existing local --env-file=.env npm helper. It upserts an account and may reset an existing account's password; verify the intended email first and remove temporary ADMIN_PASSWORD afterward.
 
 6. Using separate Inventory release credentials and CONFIRM_ENVIRONMENT=staging, run:
 

@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 const forbidden =
-  /DATABASE_URL|SESSION_SECRET|INVENTORY_CATALOG_API_KEY|MONGODB_URI|STORAGE_SECRET_KEY/;
+  /DATABASE_URL|SESSION_SECRET|INVENTORY_CATALOG_API_KEY|MONGODB_URI|STORAGE_SECRET_KEY|STORAGE_ACCESS_KEY|AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|ADMIN_PASSWORD/;
 let count = 0;
 async function scan(path) {
   for (const entry of await readdir(path, { withFileTypes: true })) {

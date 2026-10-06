@@ -26,3 +26,11 @@ Image non-root/read-only/tmp/cache behavior, combined Compose validation and exe
 The browser suite emitted the existing Next destination-stream-closed message during navigation; all assertions passed. No change to customer or Inventory business behavior was made to suppress it.
 
 Next: restore GitHub Actions availability or provide an isolated local Docker engine, run both CI workflows to completion, then review branches. Do not publish or deploy until the container verification succeeds. Later infrastructure work requires the separate read-only VPS audit and staging resource/secret preparation.
+
+## Additional isolated checks
+
+Fresh npm ci and production builds passed in both temporary source checkouts without real .env files. The isolated Admin manifest contains exactly http://inventory-api:4000/api/:path*. All four coordinated workflow files pass checksum-verified actionlint v1.7.12. Compiling/checking the release bootstrap syntax passed without executing the bootstrap.
+
+Fresh customer installation initially reported six high findings. The compatible source-map-js 1.2.2 lockfile patch addresses the [runtime advisory](https://github.com/advisories/GHSA-68fv-2mgg-jv7q); production audit now reports zero. Five development-tool dependency findings remain through the [unpatched braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm). No framework downgrade or broad audit fix was performed. Release tooling compiles the existing bootstrap to JavaScript and prunes development dependencies; image execution must still verify the resulting contents. CI gates high production dependency findings. Inventory reports zero production vulnerabilities.
+
+Direct inspection of the pinned Node 24.21.0 Linux base found no libssl3 or OS CA bundle. The customer Dockerfile supplies pinned Debian OpenSSL/libssl3/CA packages for Prisma's native engine. Image CI checks the Prisma engine version without running a database mutation.
