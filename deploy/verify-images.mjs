@@ -1,17 +1,24 @@
-// Isolated GitHub-hosted runner only; never run against a live Docker daemon.
+// Disposable verification on GitHub-hosted Linux or explicit Windows Desktop mode.
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join, dirname } from "node:path";
 import assert from "node:assert/strict";
-if (process.env.GITHUB_ACTIONS !== "true" || process.env.CI !== "true")
-  throw new Error(
-    "Image verification requires an isolated GitHub Actions runner",
-  );
-const [customer, release] = process.argv.slice(2);
+import {
+  assertVerificationTarget,
+  assertImageSecrets,
+  assertPublishedPorts,
+  browserCheckSource,
+} from "./image-verification.mjs";
+const local = process.argv.includes("--local");
+assertVerificationTarget({ local });
+const [customer, release] = process.argv
+  .slice(2)
+  .filter((value) => value !== "--local");
 assert(customer && release);
 const prefix = "maqamstay-customer-ci-" + randomBytes(6).toString("hex");
+const network = prefix + "-network";
 const folder = await mkdtemp(join(tmpdir(), prefix));
 const canary = (await readFile(".env.image-ci", "utf8")).trim();
 function docker(...args) {
@@ -40,27 +47,18 @@ async function wait(url) {
 try {
   for (const image of [customer, release]) {
     const config = JSON.parse(docker("image", "inspect", image))[0];
-    assert.equal(config.Config.User, "node");
-    assert(!JSON.stringify(config).includes(canary));
-    assert(
-      !(config.Config.Env || []).some((v) =>
-        /^(DATABASE_URL|SESSION_SECRET|INVENTORY_CATALOG_API_KEY)=/.test(v),
-      ),
-    );
-    assert(
-      !docker(
-        "history",
-        "--no-trunc",
-        "--format",
-        "{{json .}}",
-        image,
-      ).includes(canary),
+    assertImageSecrets(
+      config,
+      docker("history", "--no-trunc", "--format", "{{json .}}", image),
+      canary,
     );
     docker(
       "run",
       "--rm",
       "--entrypoint",
       "node",
+      "--network",
+      "none",
       image,
       "-e",
       "const fs=require('fs'),a=require('assert');a(process.getuid()!==0);a(!fs.existsSync('/app/.env.image-ci'));a(!fs.existsSync('/app/.env'));fs.writeFileSync('/tmp/write-check','ok');",
@@ -71,6 +69,8 @@ try {
     "--rm",
     "--entrypoint",
     "node",
+    "--network",
+    "none",
     release,
     "-e",
     "const f=require('fs'),a=require('assert');require('@prisma/client');require('bcryptjs');f.accessSync('node_modules/prisma/build/index.js');f.accessSync('scripts/create-admin.mjs');a(!f.existsSync('node_modules/eslint'));",
@@ -80,20 +80,36 @@ try {
     "--rm",
     "--entrypoint",
     "node",
+    "--network",
+    "none",
     release,
     "node_modules/prisma/build/index.js",
     "--version",
   );
   assert(prismaVersion.includes("Schema Engine"));
   assert(!/could not|unknown|not found/i.test(prismaVersion));
+  assert.match(docker("run", "--rm", "--network", "none", release), /^v24\./);
+  assert.equal(
+    Object.keys(
+      JSON.parse(docker("image", "inspect", release))[0].Config.ExposedPorts ||
+        {},
+    ).length,
+    0,
+  );
   docker(
     "run",
     "--rm",
     "--entrypoint",
     "node",
+    "--network",
+    "none",
     customer,
     "-e",
-    "const f=require('fs'),p=require('path');f.mkdirSync('.next/cache',{recursive:true});f.writeFileSync('.next/cache/ci-write-check','ok');function scan(d){for(const e of f.readdirSync(d,{withFileTypes:true})){const n=p.join(d,e.name);if(e.isDirectory())scan(n);else if(/\\.(js|map)$/.test(e.name)&&/DATABASE_URL|SESSION_SECRET|INVENTORY_CATALOG_API_KEY/.test(f.readFileSync(n,'utf8')))throw Error('Server field in browser assets')}}scan('.next/static');",
+    browserCheckSource({
+      staticPath: ".next/static",
+      cachePath: ".next/cache",
+      canary,
+    }),
   );
   const envFile = join(folder, "runtime.env");
   await writeFile(
@@ -108,11 +124,15 @@ try {
       "\n",
     { mode: 0o600 },
   );
+  // Preserve HTTPS configuration without allowing external runtime requests.
+  docker("network", "create", "--internal", network);
   docker(
     "run",
     "-d",
     "--name",
     prefix,
+    "--network",
+    network,
     "--env-file",
     envFile,
     "-p",
@@ -121,7 +141,7 @@ try {
   );
   await wait("http://127.0.0.1:13000/");
   const config = JSON.parse(docker("inspect", prefix))[0];
-  assert.equal(config.NetworkSettings.Ports["3000/tcp"][0].HostIp, "127.0.0.1");
+  assertPublishedPorts(config, { "3000/tcp": 13000 });
   console.log(
     "Customer/release images: non-root, tooling, cache/tmp writes, loopback health, HTTPS configuration and secret scans PASS",
   );
@@ -130,6 +150,11 @@ try {
     docker("rm", "-f", prefix);
   } catch {
     /* Retry probes or clean up only this job's disposable containers. */
+  }
+  try {
+    docker("network", "rm", network);
+  } catch {
+    /* Cleanup only this run's network. */
   }
   assert.equal(dirname(resolve(folder)), resolve(tmpdir()));
   await rm(folder, { recursive: true, force: true });
