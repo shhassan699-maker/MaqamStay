@@ -1,0 +1,69 @@
+name: Publish reviewed staging images
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: Public staging site URL
+        required: true
+        default: https://staging.maqamstay.com
+        type: string
+      whatsapp_number:
+        description: Public support number, digits only (8-15)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ghcr-staging-publication
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: maqamstay-customer
+            file: deploy/Dockerfile
+            target: runtime
+          - image: maqamstay-customer-release
+            file: deploy/Dockerfile
+            target: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        id: build
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: ghcr.io/shhassan699-maker/${{ matrix.image }}:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_SITE_URL=${{ inputs.site_url }}
+            NEXT_PUBLIC_WHATSAPP_NUMBER=${{ inputs.whatsapp_number }}
+          provenance: mode=max
+          sbom: true
+      - name: Record immutable artifact reference
+        env:
+          IMAGE: ghcr.io/shhassan699-maker/${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          node -e "const f=require('fs');const e=process.env;if(!/^sha256:[a-f0-9]{64}$/.test(e.DIGEST))throw Error('Missing immutable digest');f.writeFileSync('image-digest.json',JSON.stringify({commit:e.COMMIT,tag:e.IMAGE+':'+e.COMMIT,reference:e.IMAGE+'@'+e.DIGEST},null,2))"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.image }}-${{ github.sha }}
+          path: image-digest.json
+          retention-days: 30

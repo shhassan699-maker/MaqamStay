@@ -1,0 +1,56 @@
+# Combine with the inventory repository's deploy/docker-compose.staging.yml.
+services:
+  customer:
+    image: ${CUSTOMER_IMAGE:?Set a reviewed GHCR image digest}
+    env_file: ${CUSTOMER_ENV_FILE:?Set an absolute runtime environment file path}
+    environment:
+      NODE_ENV: production
+      INVENTORY_API_URL: https://inventory-api-staging.maqamstay.com
+      INVENTORY_TIMEOUT_MS: "5000"
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [customer_app, customer_db]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+    init: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+  customer-release:
+    image: ${CUSTOMER_RELEASE_IMAGE:?Set a reviewed release image digest}
+    env_file: ${CUSTOMER_RELEASE_ENV_FILE:?Set a separate operator environment file}
+    networks: [customer_db]
+    profiles: [release]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    # Inert default. Operator must explicitly select the intended release command.
+    command: ["node", "--version"]
+  postgres:
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    env_file: ${POSTGRES_ENV_FILE:?Set the private PostgreSQL environment file}
+    environment:
+      POSTGRES_DB: customer_staging
+    networks: [customer_db]
+    volumes: [customer_postgres:/var/lib/postgresql/data]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+networks:
+  customer_app: { name: maqamstay_customer_app }
+  customer_db: { name: maqamstay_customer_db, internal: true }
+volumes:
+  customer_postgres: { name: maqamstay_customer_postgres_staging }

@@ -1,5 +1,7 @@
 # MaqamStay
 
+Staging image builds, CI/GHCR, environment boundaries and future deployment/rollback steps are documented in [docs/staging-images.md](docs/staging-images.md). Preparing these files does not deploy infrastructure.
+
 Published hotel catalog browsing now integrates server-to-server with the independent Inventory Admin. See [inventory integration setup and security](docs/inventory-integration.md). The customer retains its own PostgreSQL database and assisted-request workflow; no inventory MongoDB/admin credentials are shared.
 
 MaqamStay is an assisted Saudi accommodation request and booking lead platform. Travelers send their plans, staff check options with suppliers, prepare customer quotes, and coordinate bookings manually through WhatsApp. There is no live inventory or payment processing.

@@ -1,0 +1,5 @@
+# Nginx snippets use Nginx grammar; validate with nginx -t in isolated CI.
+deploy/nginx/**
+maqamstay-inventory-admin/**
+.next/**
+node_modules/**

@@ -1,0 +1,36 @@
+name: Customer CI and isolated images
+on:
+  push:
+    branches: [main, feature/staging-images]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      NEXT_PUBLIC_SITE_URL: https://staging.maqamstay.com
+      NEXT_PUBLIC_WHATSAPP_NUMBER: "10000000000"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.12.0"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+      - run: node deploy/verify-bundles.mjs
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Build both images without server secrets
+        run: |
+          node -e "require('fs').writeFileSync('.env.image-ci','ci-only-canary-'+require('crypto').randomBytes(24).toString('hex'))"
+          docker build -f deploy/Dockerfile --target runtime --build-arg NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" --build-arg NEXT_PUBLIC_WHATSAPP_NUMBER="$NEXT_PUBLIC_WHATSAPP_NUMBER" -t local/customer:ci .
+          docker build -f deploy/Dockerfile --target release -t local/customer-release:ci .
+      - run: node deploy/verify-images.mjs local/customer:ci local/customer-release:ci

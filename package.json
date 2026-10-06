@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "format:catalog": "prettier --write src/lib/inventory src/components/catalog src/app/hotels src/app/api/catalog src/app/[slug]/hotels src/app/api/requests/route.ts src/app/request/page.tsx src/components/request-form.tsx src/lib/validation.ts",
-    "format:check": "prettier --check src/lib/inventory src/components/catalog src/app/hotels src/app/api/catalog src/app/[slug]/hotels src/app/api/requests/route.ts src/app/request/page.tsx src/components/request-form.tsx src/lib/validation.ts",
+    "format:check": "prettier --check src/lib/inventory src/components/catalog src/app/hotels src/app/api/catalog src/app/[slug]/hotels src/app/api/requests/route.ts src/app/request/page.tsx src/components/request-form.tsx src/lib/validation.ts deploy .github/workflows",
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
     "db:seed": "node --env-file=.env --import tsx prisma/seed.ts",
