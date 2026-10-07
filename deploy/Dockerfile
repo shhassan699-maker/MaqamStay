@@ -6,7 +6,7 @@ FROM base AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm ci
+RUN test "$(node --version)" = "v24.21.0" && test "$(npm --version)" = "11.19.0" && npm ci
 
 FROM dependencies AS build
 COPY . .

@@ -1,5 +1,20 @@
 # Phase 1 verification — 6 October 2026
 
+## Portability repair verification
+
+The latest source repair reproduced both original lockfile failures with checksum-verified Node 24.21.0 / npm 11.19.0, matching the pinned Linux image's actual toolchain. npm regenerated the locks without changing any existing package versions. Fresh npm ci succeeded in separate Git-exported temporary sources with no local node_modules or real .env; Linux x64 npm ci dry-run also passed for both repaired locks.
+
+- Customer: formatting, lint, strict TypeScript, 75 tests and production build PASS.
+- Inventory: formatting, lint, strict TypeScript, 131 tests and API/Admin production builds PASS; nine isolated browser tests PASS.
+- Combined verifier/repository regression suite: 15 PASS (13 when Customer alone is selected). Coverage includes Linux mode, remote endpoint rejection, Docker 29 normal bridge selection, loopback-only publication, egress guard with real local HTTP, ownership/anonymous-volume cleanup, source-export hygiene, lock/toolchain checks, Compose limits/private PostgreSQL and fail-closed bundle scanners.
+- Browser scans: 22 Customer and 17 Admin assets PASS. Four coordinated workflow files pass actionlint; credential-pattern/source hygiene checks PASS.
+- Production audits: zero findings in both repositories. Full Inventory audit: zero. Full Customer audit: the same five high development-only ESLint/braces findings; expected nonzero audit exit remains documented.
+- Actual production Customer Next server with the mounted-equivalent test guard, generated configuration and HTTPS catalog origin: loopback GET / PASS. This was a local Node process, not a container, and was stopped afterward.
+
+Docker CLI/Desktop remains unavailable locally. Four-image builds, container non-root/read-only/cache/tmp/history checks, Docker-rendered Compose and executable Nginx acceptance are therefore **NOT RUN** in this repair. GitHub account/billing remains an external runner blocker. No image/runtime success is inferred from source tests. No VPS connection, deployment, GHCR publication or database release mutation occurred.
+
+See `image-portability.md` for the supported Windows/Linux command and reviewed initial limits. The older results below remain historical evidence; the new npm compatibility checks supersede the prior install-toolchain assumption.
+
 Work was performed only in the local Windows repositories and their GitHub review branches. No VPS connection or infrastructure changes were made. No migration, index/profile mutation, bootstrap or publication job ran.
 
 | Gate                                                     | Local result                         |

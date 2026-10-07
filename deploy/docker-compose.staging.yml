@@ -1,6 +1,8 @@
 # Combine with the inventory repository's deploy/docker-compose.staging.yml.
 services:
   customer:
+    mem_limit: 768m
+    cpus: 0.5
     image: ${CUSTOMER_IMAGE:?Set a reviewed GHCR image digest}
     env_file: ${CUSTOMER_ENV_FILE:?Set an absolute runtime environment file path}
     environment:
@@ -37,6 +39,8 @@ services:
     # Inert default. Operator must explicitly select the intended release command.
     command: ["node", "--version"]
   postgres:
+    mem_limit: 1g
+    cpus: 0.5
     image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
     env_file: ${POSTGRES_ENV_FILE:?Set the private PostgreSQL environment file}
     environment:

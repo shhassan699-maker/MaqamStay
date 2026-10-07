@@ -1,4 +1,5 @@
 node_modules
+**/node_modules
 .next
 .git
 .github
@@ -14,9 +15,11 @@ maqamstay-inventory-admin
 *.pfx
 *.log
 *.tsbuildinfo
+**/*.tsbuildinfo
 coverage
 test-results
 playwright-report
+docs/screenshots
 .vscode
 .idea
 backups

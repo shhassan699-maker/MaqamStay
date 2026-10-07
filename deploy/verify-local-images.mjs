@@ -1,4 +1,4 @@
-// Build and verify committed sources only, on local Windows Docker Desktop.
+// Build and verify committed sources only, on explicitly selected local Docker.
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -6,23 +6,36 @@ import { tmpdir } from "node:os";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
-import { assertVerificationTarget } from "./image-verification.mjs";
+import {
+  assertVerificationTarget,
+  verificationArguments,
+  assertCommittedSourceEntries,
+} from "./image-verification.mjs";
 
 if (process.argv.includes("--help")) {
   console.log(
-    "node deploy/verify-local-images.mjs [absolute-inventory-repository-path]\nRequires committed, clean repositories and local Windows Docker Desktop (desktop-linux).\nBuilds four local images and invokes the same assertions as CI. No publication or deployment.",
+    "node deploy/verify-local-images.mjs [--mode windows|linux] [absolute-inventory-repository-path]\nWindows defaults to local Docker Desktop (desktop-linux). Linux requires --mode linux and a local Unix Docker socket.\nRequires committed, clean repositories. Builds four local images and invokes CI assertions. No publication or deployment.",
   );
   process.exit(0);
 }
 
 const customer = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { mode, positional } = verificationArguments(
+  process.argv.slice(2),
+  "windows",
+);
+assert(mode !== "ci", "Coordinator requires explicit local verification mode");
+assert(
+  positional.length <= 1,
+  "Expected at most one inventory repository path",
+);
 const inventory = resolve(
-  process.argv[2] || join(customer, "maqamstay-inventory-admin"),
+  positional[0] || join(customer, "maqamstay-inventory-admin"),
 );
 // Whitelist process infrastructure, never inherit application credentials/configuration.
 const env = Object.fromEntries(
   Object.entries(process.env).filter(([key]) =>
-    /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|HOME|HOMEDRIVE|HOMEPATH|LOCALAPPDATA|APPDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMDATA)$/i.test(
+    /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|LANG|LC_ALL|USER|LOGNAME|XDG_RUNTIME_DIR|USERPROFILE|HOME|HOMEDRIVE|HOMEPATH|LOCALAPPDATA|APPDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMDATA)$/i.test(
       key,
     ),
   ),
@@ -39,10 +52,10 @@ function run(command, args, cwd = customer, inherit = false) {
 
 // Validate the user's actual selection/overrides before using a sanitized environment.
 try {
-  assertVerificationTarget({ local: true });
+  assertVerificationTarget({ mode });
 } catch {
   throw new Error(
-    "Local verification requires Docker Desktop Linux containers, desktop-linux, and no Docker/Buildx endpoint overrides. See docs/image-verification.md.",
+    "Verification requires the selected local Linux engine and no Docker/Buildx endpoint overrides. Windows: desktop-linux; Linux: local /var/run/docker.sock. See docs/image-verification.md.",
   );
 }
 run("docker", ["buildx", "version"]);
@@ -63,6 +76,10 @@ for (const [name, source] of [
     "Commit intended changes before verification; do not reset local work",
   );
   commits[name] = run("git", ["rev-parse", "HEAD"], source);
+  assertCommittedSourceEntries(
+    run("git", ["ls-tree", "-r", "--name-only", "HEAD"], source).split("\n"),
+    { customer: name === "customer" },
+  );
 }
 
 const prefix = "maqamstay-four-image-test-" + randomBytes(6).toString("hex");
@@ -83,10 +100,17 @@ try {
     ["inventory", inventory],
   ]) {
     mkdirSync(roots[name]);
-    const archive = join(folder, name + ".zip");
+    const archive = join(folder, name + ".tar");
     run(
       "git",
-      ["archive", "--format=zip", "--output=" + archive, "HEAD"],
+      [
+        "-c",
+        "core.autocrlf=false",
+        "archive",
+        "--format=tar",
+        "--output=" + archive,
+        "HEAD",
+      ],
       source,
     );
     run("tar", ["-xf", archive, "-C", roots[name]]);
@@ -161,7 +185,7 @@ try {
   );
   run(
     process.execPath,
-    ["deploy/verify-images.mjs", "--local", images[0], images[1]],
+    ["deploy/verify-images.mjs", "--mode", mode, images[0], images[1]],
     roots.customer,
     true,
   );
@@ -169,12 +193,13 @@ try {
   env.CUSTOMER_ROOT = roots.customer;
   run(
     process.execPath,
-    ["scripts/verify-images.mjs", "--local", images[2], images[3]],
+    ["scripts/verify-images.mjs", "--mode", mode, images[2], images[3]],
     roots.inventory,
     true,
   );
   const report = {
     status: "passed",
+    mode,
     customerCommit: commits.customer,
     inventoryCommit: commits.inventory,
     published: false,

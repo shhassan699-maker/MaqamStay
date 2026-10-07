@@ -35,6 +35,8 @@ Actual environment files belong outside either checkout, with restricted ownersh
 
 ## Networking and proxy
 
+Initial staging service ceilings are Customer/Admin/API 768 MiB and 0.5 CPU each, PostgreSQL 1 GiB and 0.5 CPU. These use executable Compose v2 `mem_limit`/`cpus`, preserve the private database topology and exclude separately invoked release jobs and host overhead. See `image-portability.md` for the supported Windows/Linux verifier, npm 11.19.0 lock compatibility and Docker 29 fixture design.
+
 Combine both repository-controlled Compose files into one named project. Customer joins maqamstay_customer_app and maqamstay_customer_db; PostgreSQL joins only the internal customer DB network. Admin/API join maqamstay_inventory_app. No Inventory container joins the customer DB network.
 
 Only application host bindings are 127.0.0.1:3000, 127.0.0.1:3100 and 127.0.0.1:4000. PostgreSQL has no host port. Processes bind container interfaces; the host bindings enforce loopback access. Review Docker firewall behavior and IPv6/direct-routing settings during the later VPS audit.

@@ -1,4 +1,4 @@
-// Disposable verification on GitHub-hosted Linux or explicit Windows Desktop mode.
+// Disposable verification on GitHub-hosted Linux, Windows Desktop or local Linux.
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -10,12 +10,17 @@ import {
   assertImageSecrets,
   assertPublishedPorts,
   browserCheckSource,
+  verificationArguments,
+  fixtureNetworkArgs,
+  assertFixtureNetwork,
+  fixtureEgressSource,
+  ownershipLabel,
+  cleanupFixtures,
+  fixtureGuardCheckSource,
 } from "./image-verification.mjs";
-const local = process.argv.includes("--local");
-assertVerificationTarget({ local });
-const [customer, release] = process.argv
-  .slice(2)
-  .filter((value) => value !== "--local");
+const { mode, positional } = verificationArguments(process.argv.slice(2));
+assertVerificationTarget({ mode });
+const [customer, release] = positional;
 assert(customer && release);
 const prefix = "maqamstay-customer-ci-" + randomBytes(6).toString("hex");
 const network = prefix + "-network";
@@ -124,38 +129,49 @@ try {
       "\n",
     { mode: 0o600 },
   );
-  // Preserve HTTPS configuration without allowing external runtime requests.
-  docker("network", "create", "--internal", network);
+  const guard = join(folder, "fixture-egress.cjs");
+  await writeFile(guard, fixtureEgressSource());
+  docker(...fixtureNetworkArgs(network, prefix));
+  assertFixtureNetwork(
+    JSON.parse(docker("network", "inspect", network))[0],
+    prefix,
+  );
   docker(
     "run",
     "-d",
     "--name",
     prefix,
+    "--label",
+    `${ownershipLabel}=${prefix}`,
     "--network",
     network,
     "--env-file",
     envFile,
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges:true",
+    "--mount",
+    `type=bind,src=${guard},dst=/opt/fixture-egress.cjs,readonly`,
+    "--env",
+    "NODE_OPTIONS=--require=/opt/fixture-egress.cjs",
     "-p",
     "127.0.0.1:13000:3000",
     customer,
   );
   await wait("http://127.0.0.1:13000/");
+  docker("exec", prefix, "node", "-e", fixtureGuardCheckSource);
   const config = JSON.parse(docker("inspect", prefix))[0];
   assertPublishedPorts(config, { "3000/tcp": 13000 });
+  assert.deepEqual(Object.keys(config.NetworkSettings.Networks), [network]);
   console.log(
     "Customer/release images: non-root, tooling, cache/tmp writes, loopback health, HTTPS configuration and secret scans PASS",
   );
 } finally {
   try {
-    docker("rm", "-f", prefix);
-  } catch {
-    /* Retry probes or clean up only this job's disposable containers. */
+    cleanupFixtures(docker, { names: [prefix], network, owner: prefix });
+  } finally {
+    assert.equal(dirname(resolve(folder)), resolve(tmpdir()));
+    await rm(folder, { recursive: true, force: true });
   }
-  try {
-    docker("network", "rm", network);
-  } catch {
-    /* Cleanup only this run's network. */
-  }
-  assert.equal(dirname(resolve(folder)), resolve(tmpdir()));
-  await rm(folder, { recursive: true, force: true });
 }

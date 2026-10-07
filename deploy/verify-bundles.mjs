@@ -23,4 +23,5 @@ async function scan(path) {
   }
 }
 await scan(resolve(process.argv[2] || ".next/static"));
+if (count === 0) throw new Error("No customer browser assets inspected");
 console.log(`Customer: ${count} browser assets passed the server-secret scan`);
