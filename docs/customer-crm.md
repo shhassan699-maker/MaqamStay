@@ -61,7 +61,7 @@ The public TLS name remains `maqamstay-staging.169-58-95-12.sslip.io`. Verify bo
 
 ## Future VPS rollout (operator-only; not executed here)
 
-1. Obtain explicit deployment approval and resolve the existing dependency-audit gate described below. Record the currently running Customer image digest, runtime-file version and current Customer-only Nginx blocks. Inspect the actual Compose/service/config paths and ensure the checkout is clean. Leave all Inventory virtual hosts, containers and network configuration untouched.
+1. Obtain explicit deployment approval and require a passing production dependency audit for the approved commit. The Next security patch below resolves the previously reported production-audit blocker. Record the currently running Customer image digest, runtime-file version and current Customer-only Nginx blocks. Inspect the actual Compose/service/config paths and ensure the checkout is clean. Leave all Inventory virtual hosts, containers and network configuration untouched.
 2. Fetch `origin/feature/separate-customer-crm` and verify the approved final commit before checking it out. Use the reviewed Customer release/runtime images built from that commit; no GHCR publication is part of this task. For a local image build, from the Customer checkout:
 
    ```bash
@@ -110,7 +110,7 @@ The previous image may allow admin access on the public host. During rollback re
 
 Unit tests validate persisted-session decisions through a mocked database, and HTTP fixtures validate the built application without a database server. Existing request/quote/booking/commission/review/catalog regression suites run unchanged. Real PostgreSQL integration, Nginx `-t`, actual HTTPS cookie behavior in a browser and Docker runtime checks remain separate acceptance steps when the required tools/environment are available.
 
-## Local acceptance record (8 October 2026)
+## Original hostname-separation acceptance (8 October 2026, before security patch)
 
 | Check                                     | Result                                                                                |
 | ----------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -127,3 +127,29 @@ Unit tests validate persisted-session decisions through a mocked database, and H
 No dependency versions or lockfile were changed by hostname separation. The full clean-install audit reports six high-severity packages, including existing development tooling. The unchanged CI production-audit step will fail until the reported Next advisories are addressed in a reviewed dependency patch; tests/security gates have not been bypassed. The high-severity [Next image-optimizer advisory](https://github.com/vercel/next.js/security/advisories/GHSA-cjq9-62q9-8jv4) requires configured remote image patterns, which this application does not have, but that does not resolve the package audit or the other reported Next advisories. Treat the dependency patch as a pre-deployment prerequisite.
 
 All fixture work used generated values and unreachable loopback dependency endpoints. The Inventory repository, original evidence, VPS, Atlas, storage, DNS and certificates were untouched. No images were published and no database mutations/migrations ran.
+
+## Next.js security patch verification (8 October 2026)
+
+The original production audit exited 1 and reported Next 16.3.6 against `GHSA-cjq9-62q9-8jv4` and related Next advisories. npm's advisory metadata lists the affected range as `>=16.0.0 <16.3.8`. Next 16.3.8 is the smallest published patch outside that range; the automatically suggested 16.4.0 minor upgrade was unnecessary.
+
+Only `next` and the matching `eslint-config-next` pins change from 16.3.6 to 16.3.8. npm regenerated the lockfile through `npm install --package-lock-only --ignore-scripts` in a clean source directory with no existing dependencies. The 12 version changes are confined to Next, its environment/SWC packages and its ESLint configuration/plugin. Unrelated lock entries remain identical, with no packages added/removed. React/React DOM remain 19.2.8 and Prisma/client remain 6.19.3. The patch retains Node `>=20.9.0` and React `^19.0.0` compatibility.
+
+Resolution, clean installation and every check below used the repository-approved Node 24.21.0 / npm 11.19.0, matching the pinned Docker toolchain. A portable official Windows Node archive was verified against the official SHA-256 manifest; global Node/npm installations were unchanged. Local Customer dependencies were also refreshed with this toolchain. The clean build context excluded local `.env` files, dependencies, build output and the nested Inventory repository. Tests/build/HTTP checks used generated configuration, unreachable loopback dependency endpoints and existing in-memory/mock database fixtures.
+
+| Check                                 | Result                                                                |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| Clean `npm ci`                        | PASS                                                                  |
+| `npm run format:check`                | PASS                                                                  |
+| `npm run lint`                        | PASS                                                                  |
+| `npm run typecheck`                   | PASS                                                                  |
+| `npm test`                            | 140 tests across 19 files PASS                                        |
+| `npm run build`                       | PASS, Next 16.3.8                                                     |
+| `npm audit --omit=dev`                | PASS, exit 0, zero vulnerabilities                                    |
+| Deployment regressions                | 17 tests PASS                                                         |
+| Production Customer/CRM HTTP fixtures | 38 checks PASS                                                        |
+| Browser bundle/secret scan            | 22 assets PASS                                                        |
+| Customer runtime/release containers   | PENDING: Docker CLI/Desktop unavailable locally; no VPS fallback used |
+
+Public admin redirects retain path/query, public admin APIs return 404 without redirects, authenticated CRM pages render, and the real admin guard accepts CRM Origin with a fixture session while rejecting public/arbitrary Origins. Login/logout cookie headers remain host-only, Secure, HttpOnly and SameSite=Lax. Existing request, quote, booking, commission, review and inventory catalog regression suites pass. `CUSTOMER_CRM_ORIGIN`, `INVENTORY_CATALOG_API_KEY` and `DATABASE_URL` remain server-only and absent from browser bundles. No application source, authentication policy, Nginx configuration, CI security gate, Prisma schema or migration changes accompany the patch. Prisma postinstall only generates the client; it runs no migrations.
+
+The full audit still exits 1 for five existing development-only packages in the Next ESLint/fast-glob/micromatch/braces chain. These are outside the requested production security patch; no unrelated upgrade or audit suppression was applied. Production audit is clean. Docker runtime verification, actual Nginx/TLS and authorized real-database staging acceptance remain pending infrastructure checks.
