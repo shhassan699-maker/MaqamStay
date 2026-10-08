@@ -2,6 +2,8 @@
 
 Phase 1 prepares source, isolated verification and review branches only. No VPS connection, deployment, database mutation, DNS, certificate, Atlas or S3 provisioning is performed.
 
+For the current shared Customer/CRM sslip hostnames, use [Customer CRM configuration and rollout](customer-crm.md). That guide supersedes the older Customer hostname examples below and requires a server-only `CUSTOMER_CRM_ORIGIN`. Inventory deployment configuration remains independent.
+
 ## Source and image ownership
 
 Customer is based on approved commit 5669a2ce51145ba702c7ce01786ed3a27a834496; Inventory is based on 3a68c24270cb9fa8cde2497e1e542d60f9e23d7a. Keep sibling checkouts under /srv/maqamstay/staging/customer and /srv/maqamstay/staging/inventory. Customer owns PostgreSQL/Prisma; Inventory owns Atlas. Neither shares database credentials with the other.

@@ -1,0 +1,43 @@
+# REVIEW ONLY: Customer vhosts, leaving Inventory Admin/API vhosts unchanged.
+# Install alongside existing configuration after certificate/hostname review.
+# Place these *.inc files under /etc/nginx/maqamstay. No raw media directory aliases.
+server {
+    listen 80;
+    server_name maqamstay-staging.169-58-95-12.sslip.io maqamstay-crm.169-58-95-12.sslip.io;
+    location = /api/admin { return 404; }
+    location ^~ /api/admin/ { return 404; }
+    location / { return 308 https://$host$request_uri; }
+}
+server {
+    listen 443 ssl;
+    server_name maqamstay-staging.169-58-95-12.sslip.io;
+    ssl_certificate /etc/letsencrypt/live/maqamstay-staging.169-58-95-12.sslip.io/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/maqamstay-staging.169-58-95-12.sslip.io/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    location = /admin { include /etc/nginx/maqamstay/customer-admin-redirect.inc; }
+    location ^~ /admin/ { include /etc/nginx/maqamstay/customer-admin-redirect.inc; }
+    location = /api/admin { return 404; }
+    location ^~ /api/admin/ { return 404; }
+    location / { include /etc/nginx/maqamstay/customer-proxy.inc; }
+}
+server {
+    listen 443 ssl;
+    server_name maqamstay-crm.169-58-95-12.sslip.io;
+    ssl_certificate /etc/letsencrypt/live/maqamstay-crm.169-58-95-12.sslip.io/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/maqamstay-crm.169-58-95-12.sslip.io/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    location = / {
+        if ($request_method !~ ^(GET|HEAD)$) { return 405; }
+        return 307 https://maqamstay-crm.169-58-95-12.sslip.io/admin;
+    }
+    location = /admin { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location ^~ /admin/ { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location = /api/admin { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location ^~ /api/admin/ { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location ^~ /_next/static/ { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location = /_next/image { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location = /brand-mark.svg { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location = /favicon.ico { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location = /icon.svg { include /etc/nginx/maqamstay/customer-proxy.inc; }
+    location / { return 404; }
+}

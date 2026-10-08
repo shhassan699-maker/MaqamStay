@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join, dirname } from "node:path";
 import assert from "node:assert/strict";
+import { loopbackResponse } from "./loopback-http.mjs";
 import {
   assertVerificationTarget,
   assertImageSecrets,
@@ -39,7 +40,10 @@ function docker(...args) {
 async function wait(url) {
   for (let n = 0; n < 90; n++) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      const r = await loopbackResponse(url, {
+        headers: { Host: "staging.maqamstay.com" },
+        timeout: 2000,
+      });
       await r.body?.cancel();
       if (r.status === 200) return;
     } catch {
@@ -119,7 +123,7 @@ try {
   const envFile = join(folder, "runtime.env");
   await writeFile(
     envFile,
-    "NODE_ENV=production\nNEXT_PUBLIC_SITE_URL=https://staging.maqamstay.com\nNEXT_PUBLIC_WHATSAPP_NUMBER=10000000000\n" +
+    "NODE_ENV=production\nCUSTOMER_CRM_ORIGIN=https://crm.example.test\nNEXT_PUBLIC_SITE_URL=https://staging.maqamstay.com\nNEXT_PUBLIC_WHATSAPP_NUMBER=10000000000\n" +
       "SESSION_SECRET=" +
       randomBytes(32).toString("hex") +
       "\n" +

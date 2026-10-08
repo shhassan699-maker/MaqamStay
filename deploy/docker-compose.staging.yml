@@ -23,7 +23,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "require('node:http').get('http://127.0.0.1:3000/',{headers:{Host:new URL(process.env.NEXT_PUBLIC_SITE_URL).host}},r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1)).setTimeout(9000,function(){this.destroy()})",
         ]
       interval: 30s
       timeout: 10s
