@@ -124,6 +124,8 @@ test("shell parsers reject command injection and invalid requests before any SSH
     "validate unknown " + "a".repeat(40),
     "validate customer short",
     "validate customer $(id)",
+    "validate customer " + "a".repeat(40) + " --profile release",
+    "validate inventory " + "a".repeat(40) + " --profile other",
     "validate customer " + "a".repeat(40) + " customer",
     "validate inventory " + "a".repeat(40) + " /tmp/compose.yml",
     "validate customer " + "a".repeat(40) + "; id",

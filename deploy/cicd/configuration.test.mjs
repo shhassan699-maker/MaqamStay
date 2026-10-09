@@ -13,7 +13,7 @@ import {
   selectorSource,
 } from "./configuration.mjs";
 import { operation, execute, images, request } from "./deployment.mjs";
-import { createHost } from "./host.mjs";
+import { createHost, privateEnv } from "./host.mjs";
 const sha = "a".repeat(40);
 const digest = "sha256:" + "b".repeat(64);
 const previous = "sha256:" + "c".repeat(64);
@@ -58,6 +58,8 @@ test("the shipped v2 config models two exact projects, ordered files, separate s
     "/etc/maqamstay-staging/inventory.env",
   );
   assert.equal(customer.lockFile, inventory.lockFile);
+  assert.deepEqual(customer.requiredProfiles, ["release"]);
+  assert.deepEqual(inventory.requiredProfiles, ["release"]);
   assert.notEqual(customer.imagesFile, inventory.imagesFile);
 });
 const mutations = {
@@ -123,6 +125,27 @@ const mutations = {
   "unsafe RAM threshold": (d) => {
     d.minimumAvailableRamMiB = 0;
   },
+  "missing required profiles": (d) => {
+    delete d.deployments.customer.requiredProfiles;
+  },
+  "empty required profiles": (d) => {
+    d.deployments.inventory.requiredProfiles = [];
+  },
+  "unknown profile": (d) => {
+    d.deployments.customer.requiredProfiles = ["other"];
+  },
+  "duplicate profiles": (d) => {
+    d.deployments.inventory.requiredProfiles = ["release", "release"];
+  },
+  "profile type": (d) => {
+    d.deployments.customer.requiredProfiles = "release";
+  },
+  "profile injection": (d) => {
+    d.deployments.inventory.requiredProfiles = ["release; id"];
+  },
+  "unknown profile configuration field": (d) => {
+    d.deployments.customer.profiles = ["release"];
+  },
 };
 for (const [name, mutate] of Object.entries(mutations)) {
   test(`strict v2 schema rejects ${name} before host creation`, async () => {
@@ -144,6 +167,8 @@ test("operation protocol rejects unknown repos, services, projects, paths, diges
     ["validate", "customer", "short"],
     ["validate", "customer", sha, "postgres"],
     ["validate", "customer", sha, "/tmp/x.yml"],
+    ["validate", "customer", sha, "--profile", "release"],
+    ["deploy", "inventory", sha, digest, digest, "--profile", "other"],
     ["validate", "customer; id", sha],
     ["validate", "inventory", sha + "; id"],
     ["deploy", "inventory", sha, digest, digest, "customer"],
@@ -204,6 +229,11 @@ function fixture(app, faults = {}) {
     privateEnv: async (path) => {
       paths.push(path);
       if (path === faults.missing) throw Error("Invalid protected env");
+      if (path === def.imagesFile && faults.selectorMode !== undefined)
+        await privateEnv(
+          path,
+          permissionReader(path, { mode: faults.selectorMode }),
+        );
     },
     readFile: async (path) => {
       paths.push(path);
@@ -250,17 +280,28 @@ function fixture(app, faults = {}) {
         assert.deepEqual(args.slice(0, base.length), base);
         for (const [key, path] of Object.entries(def.environmentFiles))
           assert.equal(options.env[key], path);
-        const cmd = args.slice(base.length);
-        if (cmd[0] === "config")
-          return cmd.includes("json") ? JSON.stringify(rendered) : "";
+        let cmd = args.slice(base.length);
+        const enabled = [];
+        while (cmd[0] === "--profile") {
+          enabled.push(cmd[1]);
+          cmd = cmd.slice(2);
+        }
+        if (cmd[0] === "config") {
+          const effective = structuredClone(rendered);
+          if (!enabled.includes("release") || faults.missingRelease)
+            delete effective.services[def.release.service];
+          return cmd.includes("json") ? JSON.stringify(effective) : "";
+        }
         if (cmd[0] === "ps") return ids[cmd.at(-1)];
         if (cmd[0] === "up") {
+          assert.deepEqual(enabled, []); // No profile on any runtime recreation.
           const s = cmd.at(-1);
           assert(def.runtimeServices.includes(s));
           running[s] = selected[def.imageSelectors[s]];
           return "";
         }
         if (cmd[0] === "run") {
+          assert.deepEqual(enabled, ["release"]);
           assert(cmd.includes(def.release.service));
           assert(cmd.includes("--no-deps"));
           assert.equal(
@@ -332,6 +373,44 @@ function fixture(app, faults = {}) {
   };
 }
 for (const app of ["customer", "inventory"]) {
+  test(`${app}: profiled release is visible in quiet and JSON topology validation`, async () => {
+    const f = fixture(app);
+    // The simulator omits release services unless the actual host asks for the profile.
+    const report = await execute(f.doc, ["validate", app, sha], f.factory);
+    assert.equal(report.status, "succeeded");
+    const renders = f.commands.filter(
+      ([, args]) => args[0] === "compose" && args.includes("config"),
+    );
+    assert.equal(renders.length, 2);
+    for (const [, args] of renders) {
+      assert.deepEqual(
+        args.slice(0, composeArguments(f.def, true).length),
+        composeArguments(f.def, true),
+      );
+      assert.equal(args[args.indexOf("--profile") + 1], "release");
+    }
+    assert.equal(f.writes.length, 0);
+  });
+  test(`${app}: missing release fails despite enabled profile, without mutation`, async () => {
+    const f = fixture(app, { missingRelease: true });
+    assert.equal(
+      (await execute(f.doc, ["validate", app, sha], f.factory)).status,
+      "failed",
+    );
+    assert.equal(f.writes.length, 0);
+    assert(
+      !f.commands.some(
+        ([, args]) =>
+          args.includes("run") || args.includes("up") || args.includes("pull"),
+      ),
+    );
+  });
+  test(`${app}: insecure selector permissions fail before any Docker operation`, async () => {
+    const f = fixture(app, { selectorMode: 0o644 });
+    await assert.rejects(execute(f.doc, ["validate", app, sha], f.factory));
+    assert.equal(f.commands.length, 0);
+    assert.equal(f.writes.length, 0);
+  });
   test(`${app}: validation uses actual host adapter, correct Compose routing and zero mutating operations`, async () => {
     const f = fixture(app);
     const report = await execute(f.doc, ["validate", app, sha], f.factory);
@@ -370,7 +449,12 @@ for (const app of ["customer", "inventory"]) {
       f.def.runtimeServices,
     );
     for (const [, args] of ups)
-      assert(args.includes("--no-deps") && args.includes("--no-build"));
+      assert(
+        args.includes("--no-deps") &&
+          args.includes("--no-build") &&
+          !args.includes("--profile"),
+      );
+    assert(!ups.some(([, args]) => args.at(-1) === f.def.release.service));
     for (const [kind, path] of f.writes)
       if (kind === "selectors") assert.equal(path, f.def.imagesFile);
     if (app === "inventory")
@@ -439,6 +523,79 @@ test("Inventory validation rejects leaked Customer networks; schemas reject mixe
     selectorSource(`CUSTOMER_IMAGE=sha256:${"b".repeat(64)}\n`, other.def),
   );
 });
+
+function permissionReader(file, changes = {}, parentChanges = {}) {
+  return async (path) => ({
+    uid: 0,
+    gid: 0,
+    nlink: 1,
+    mode: path === file ? 0o600 : 0o755,
+    isSymbolicLink: () => false,
+    isFile: () => path === file,
+    isDirectory: () => path !== file,
+    ...(path === file ? changes : parentChanges),
+  });
+}
+test("private selectors retain root-only, regular, unaliased permission requirements", async () => {
+  const path = "/opt/maqamstay-staging/deployment/customer-images.env";
+  for (const mode of [0o600, 0o400])
+    await privateEnv(path, permissionReader(path, { mode }));
+  for (const changes of [
+    { mode: 0o644 },
+    { mode: 0o640 },
+    { mode: 0o660 },
+    { mode: 0o606 },
+    { uid: 1000 },
+    { nlink: 2 },
+    { isSymbolicLink: () => true },
+    { isFile: () => false },
+  ])
+    await assert.rejects(privateEnv(path, permissionReader(path, changes)));
+});
+test("private selectors reject non-root, symlink and writable ancestor directories", async () => {
+  const path = "/opt/maqamstay-staging/deployment/customer-images.env";
+  for (const parentChanges of [
+    { mode: 0o775 },
+    { mode: 0o777 },
+    { uid: 1000 },
+    { isSymbolicLink: () => true },
+  ])
+    await assert.rejects(
+      privateEnv(path, permissionReader(path, {}, parentChanges)),
+    );
+});
+for (const app of ["customer", "inventory"]) {
+  const def = exampleConfiguration().deployments[app];
+  const source = (reference) =>
+    Object.values(def.imageSelectors)
+      .map((key, i) => `${key}=${reference(images[app][i])}`)
+      .join("\n");
+  test(`${app}: selector parser accepts full local image IDs and matching GHCR manifest digests`, () => {
+    assert.doesNotThrow(() =>
+      selectorSource(
+        source(() => digest),
+        def,
+      ),
+    );
+    assert.doesNotThrow(() =>
+      selectorSource(
+        source((name) => `ghcr.io/shhassan699-maker/${name}@${digest}`),
+        def,
+      ),
+    );
+  });
+  test(`${app}: mutable tags, full commit tags and wrong image digests remain rejected`, () => {
+    for (const reference of [
+      () => "local/customer:staging",
+      (name) => `ghcr.io/shhassan699-maker/${name}:latest`,
+      (name) => `ghcr.io/shhassan699-maker/${name}:${sha}`,
+      () => `ghcr.io/other/image@${digest}`,
+      () => "sha256:short",
+      () => digest.toUpperCase(),
+    ])
+      assert.throws(() => selectorSource(source(reference), def));
+  });
+}
 for (const [app, failed] of [
   ["customer", "customer"],
   ["inventory", "inventory-api"],

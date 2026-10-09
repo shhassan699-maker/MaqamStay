@@ -102,6 +102,7 @@ The exact non-secret contents below are also committed as `deploy/cicd/cicd.exam
         "/opt/maqamstay-staging/customer/deploy/docker-compose.staging.yml",
         "/opt/maqamstay-staging/deployment/phase3b-customer.override.yml"
       ],
+      "requiredProfiles": ["release"],
       "imagesFile": "/opt/maqamstay-staging/deployment/customer-images.env",
       "runtimeServices": ["customer"],
       "imageSelectors": {
@@ -134,6 +135,7 @@ The exact non-secret contents below are also committed as `deploy/cicd/cicd.exam
       "composeFiles": [
         "/opt/maqamstay-staging/inventory/deploy/docker-compose.staging.yml"
       ],
+      "requiredProfiles": ["release"],
       "imagesFile": "/opt/maqamstay-staging/deployment/inventory-images.env",
       "runtimeServices": ["inventory-api", "inventory-admin"],
       "imageSelectors": {
@@ -170,3 +172,42 @@ The exact non-secret contents below are also committed as `deploy/cicd/cicd.exam
 The forced SSH boundary accepts exactly `validate customer <full-40-character-sha>` or `validate inventory <full-40-character-sha>`, as well as the existing `deploy <customer|inventory> <sha> <digest-1> <digest-2>`. Validation requires no digests or application credentials. It validates the entire JSON schema, then checks only the selected deployment's protected files, selectors, effective Compose topology (`config --quiet` plus captured JSON), current Docker health, disk/RAM, PostgreSQL identity for Customer or media/network identity for Inventory. It returns sanitized JSON and an unsuccessful status on failure.
 
 Validation takes the same lock but performs **no pulls, selector/config edits, journal writes, migrations, indexes, container recreation, Docker exec, HTTP probes, Nginx command/reload or database writes**. It deliberately inspects existing Docker health only, so it is not a substitute for full deployment HTTP/TLS acceptance. Mutation methods also reject calls in validation mode. Missing lock/files or unsafe ownership fail closed. No `eval`, shell access, client-controlled paths/services or new sudo permissions are introduced.
+
+## Required Compose release profile and selector baseline
+
+Both protected definitions now require `requiredProfiles: ["release"]`. This is an explicit required field in the version-2 schema; only this exact reviewed profile list is allowed. Missing/empty/duplicate lists, alternate names, invalid types, extra fields and SSH profile arguments fail closed. Update the protected JSON together with the matching engine; older documents without this field are intentionally rejected. The exact JSON Patch delta is:
+
+```json
+[
+  {
+    "op": "add",
+    "path": "/deployments/customer/requiredProfiles",
+    "value": ["release"]
+  },
+  {
+    "op": "add",
+    "path": "/deployments/inventory/requiredProfiles",
+    "value": ["release"]
+  }
+]
+```
+
+Preflight in both deploy and validation modes includes `--profile release` in `config --quiet` and the captured `config --format json`. Customer must still contain exactly `customer`, `postgres`, `customer-release`; Inventory exactly `inventory-api`, `inventory-admin`, `inventory-release`. A missing release service still fails. JSON rendering can contain protected env values: the wrapper captures it only in memory and never prints it. The quiet render commands are:
+
+```bash
+CUSTOMER_ENV_FILE=/etc/maqamstay-staging/customer.env CUSTOMER_RELEASE_ENV_FILE=/etc/maqamstay-staging/customer-release.env POSTGRES_ENV_FILE=/etc/maqamstay-staging/postgres.env docker compose --project-name maqamstay-customer-staging --env-file /opt/maqamstay-staging/deployment/customer-images.env -f /opt/maqamstay-staging/customer/deploy/docker-compose.staging.yml -f /opt/maqamstay-staging/deployment/phase3b-customer.override.yml --profile release config --quiet
+INVENTORY_API_ENV_FILE=/etc/maqamstay-staging/inventory.env INVENTORY_RELEASE_ENV_FILE=/etc/maqamstay-staging/inventory.env docker compose --project-name maqamstay-staging --env-file /opt/maqamstay-staging/deployment/inventory-images.env -f /opt/maqamstay-staging/inventory/deploy/docker-compose.staging.yml --profile release config --quiet
+```
+
+These commands require the selected protected env-path selectors supplied by the host engine or the existing selector file. Do not source runtime secrets into an operator shell. The engine also enables the required profile for the explicit one-off `run --rm --no-deps` release job, which is never invoked in validation mode. Runtime `up` and container lookup commands do **not** enable profiles. Every `up` still names exactly one permitted runtime service with `--no-deps --no-build --pull never --force-recreate`. Release services never become persistent applications; PostgreSQL stays check-only. Validation retains zero application/config/database mutation and never normalizes selectors.
+
+The owner-reported Customer mode `0644` and mutable local tags are separate, intentional validation blockers. They are not accepted by this fix. Required operational ownership/mode for each selector is **root:root, 0600**, regular non-symlink file, one hard link, with root-owned non-symlink ancestors that are not group/world-writable. Precisely, the unchanged file checker enforces UID 0, regular file/non-symlink, no group/other permission bits (`mode & 0077 == 0`) and no multiple hard links. It accepts stricter owner-only modes such as `0400`; it does not separately test GID or require an exact owner-bit mask. Setup and the normalization example explicitly establish root:root/0600. Group/world-readable or writable modes, non-root ownership, symlinks, hard links or unsafe ancestors fail before Docker operations. No ACL-based alternative or writable deployment-user ownership is introduced.
+
+The unchanged selector parser accepts only:
+
+- `sha256:<64 lowercase hexadecimal characters>`: retained, locally available Docker image ID, including an already-running local Customer image and its installed release image.
+- `ghcr.io/shhassan699-maker/<matching-image-name>@sha256:<64 lowercase hexadecimal characters>`: immutable registry manifest digest for that exact selector's image name.
+
+Matching names are `maqamstay-customer` for `CUSTOMER_IMAGE`, `maqamstay-customer-release` for `CUSTOMER_RELEASE_IMAGE`, `maqamstay-inventory-api` for `INVENTORY_API_IMAGE`, and `maqamstay-inventory-admin` for `INVENTORY_ADMIN_IMAGE`. Mutable local tags, `latest`, full commit-SHA registry tags, other registries/names, uppercase or shortened hashes are rejected. A full commit-SHA tag is a naming convention and can be retargeted in a registry; a manifest digest addresses content. Local Docker image IDs and registry manifest digests identify different objects: never construct a GHCR digest reference by prefixing the captured local image ID. Future new deployments still pull/deploy only published GHCR digests; local IDs are retained-baseline/rollback references. Keep those local images and do not prune them.
+
+See the exact future administrator-only normalization procedure in [staging-vps-setup.md](staging-vps-setup.md#future-customer-selector-baseline-normalization). It changes only Customer selector metadata/content and a protected backup; it performs no container/storage/database mutation. It cannot be requested through forced SSH validation/deployment and does not touch Inventory selectors.

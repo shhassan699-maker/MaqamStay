@@ -15,6 +15,7 @@ const definitions = {
       `${root}/customer/deploy/docker-compose.staging.yml`,
       `${root}/deployment/phase3b-customer.override.yml`,
     ],
+    requiredProfiles: ["release"],
     imagesFile: `${root}/deployment/customer-images.env`,
     runtimeServices: ["customer"],
     imageSelectors: {
@@ -45,6 +46,7 @@ const definitions = {
     repository: repositories.inventory,
     project: "maqamstay-staging",
     composeFiles: [`${root}/inventory/deploy/docker-compose.staging.yml`],
+    requiredProfiles: ["release"],
     imagesFile: `${root}/deployment/inventory-images.env`,
     runtimeServices: ["inventory-api", "inventory-admin"],
     imageSelectors: {
@@ -117,7 +119,7 @@ export function selectDeployment(document, app) {
     throw new Error("Unknown deployment repository");
   return configuration(document).deployments[app];
 }
-export function composeArguments(definition) {
+export function composeArguments(definition, includeRequiredProfiles = false) {
   if (!Object.values(definitions).some((d) => isDeepStrictEqual(d, definition)))
     throw new Error("Unapproved deployment definition");
   return [
@@ -127,6 +129,9 @@ export function composeArguments(definition) {
     "--env-file",
     definition.imagesFile,
     ...definition.composeFiles.flatMap((file) => ["-f", file]),
+    ...(includeRequiredProfiles
+      ? definition.requiredProfiles.flatMap((profile) => ["--profile", profile])
+      : []),
   ];
 }
 export function selectorSource(source, definition) {

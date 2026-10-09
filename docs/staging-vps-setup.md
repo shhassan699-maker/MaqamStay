@@ -131,3 +131,30 @@
 15. Only after a separate deployment authorization, complete the initial image baseline and health acceptance, then create/merge/push the reviewed `staging` branches normally. The pipeline will run CI, publication, then digest deployment. Review artifacts/journals after the first authorized deployment. This repository task did not perform this step.
 
 For future rollback recovery after power loss, take the same lock, inspect the protected journal's `previous` digests and any coordinator `.pending` file, restore only the affected image selectors, and use the established Compose flags with `up -d --no-deps --no-build --pull never --force-recreate` for the affected service only. Verify the documented health checks. Database migration failure/compatibility requires explicit manual review; never reset migrations, downgrade/delete data or restore over live databases automatically.
+
+## Future Customer selector baseline normalization
+
+**No command below was run during this repository task.** This is a future, separately authorized administrator-console procedure, not a deployment action or a forced SSH operation. Normalization necessarily changes selector configuration/permissions; it is non-mutating with respect to running containers, application env files, databases, volumes, networks and media. Validation itself remains fully read-only and will continue to reject the old Customer 0644/mutable-tag baseline until an administrator performs this step.
+
+1. Install the reviewed matching host engine and protected JSON first, including `requiredProfiles: ["release"]` in both deployment definitions. Keep the existing lock. The exact JSON is in `deploy/cicd/cicd.example.json`; the two-field delta and quiet profile render commands are in [staging-cicd.md](staging-cicd.md#required-compose-release-profile-and-selector-baseline). Do not modify the actual Compose definitions or start release services to make them visible.
+2. Inspect selector/ancestor ownership and metadata without printing contents. Confirm a root-owned non-symlink Customer selector, no writable/symlink ancestor, one hard link, and the existing mode. If ownership/ancestry is unsafe, stop for administrator review rather than accepting it. Mode 0644 can be corrected only by this administrator step, never by validation:
+
+   ```bash
+   sudo stat -c '%U:%G %a links=%h' /opt/maqamstay-staging/deployment/customer-images.env
+   ```
+
+3. Confirm through the approved image inventory that the current `CUSTOMER_RELEASE_IMAGE` selector names the already-installed, reviewed Customer **release** image. There is normally no running release container to inspect. If that image is absent, ambiguous or unreviewed, stop; do not pull/build/run it as part of normalization. The example resolves that existing reference through local `docker image inspect` only.
+4. Transfer the reviewed `normalize-customer-baseline.example.sh` with the engine files to the administrator-owned source directory. Install and execute it only with the separately authorized administrator account, never `maqamstay-deploy`. The dedicated deployment account's sudo rule remains restricted to `entry.sh`; no new sudo or SSH operation is permitted:
+
+   ```bash
+   : "${REVIEWED_CICD_SOURCE:?Absolute reviewed administrator-owned source directory required}"
+   sudo install -o root -g root -m 0700 "$REVIEWED_CICD_SOURCE/normalize-customer-baseline.example.sh" /usr/local/lib/maqamstay-cicd/normalize-customer-baseline.example.sh
+   sudo /bin/bash /usr/local/lib/maqamstay-cicd/normalize-customer-baseline.example.sh
+   sudo stat -c '%U:%G %a links=%h' /opt/maqamstay-staging/deployment/customer-images.env
+   ```
+
+   The complete copyable procedure is the repository file `deploy/cicd/normalize-customer-baseline.example.sh`. It takes the same existing exclusive lock, checks protected configuration/ancestry, requires exactly one healthy running Customer with the correct project/service labels, obtains its actual `.Image` full SHA256 ID (not the old `.Config.Image` tag), and resolves the installed release image's full local ID. It verifies both images are retained locally. It substitutes only `CUSTOMER_IMAGE` and `CUSTOMER_RELEASE_IMAGE`, validates the candidate using the exact unchanged production parser before any writes, detects concurrent selector changes, creates a root-only timestamped `customer-images.env.before-immutable.*` backup, establishes root:root/0600 and atomically writes the selector. It then checks the same running Customer container/image/health/mount/network identity. Outputs contain fixed success/failure labels only; no selector contents, protected env values or Docker stderr are printed. Inventory selectors and PostgreSQL are never opened/inspected/changed.
+
+   There are no `pull`, Compose, release job, migration/index, recreation, prune, Nginx or database commands. Do not run `up` after editing selectors: the running container already uses the recorded image ID. A missing installed image, invalid selector key, hard link or pre-existing `.pending` file fails closed. On failure review the protected backup/pending state manually; never delete unknown checkpoints or trigger deployment as a workaround.
+
+5. Later, with reviewed engine/configuration and the pinned deployment key/known_hosts, use the existing `validate customer <approved-full-sha>` and `validate inventory <approved-full-sha>` requests from step 14. Customer now passes the unchanged immutable selector and root-only permission gates; profile-enabled rendering sees its release job. Validation will still fail on any real health/resource/topology issue and never repairs it. No staging branch creation or deployment is part of this procedure.

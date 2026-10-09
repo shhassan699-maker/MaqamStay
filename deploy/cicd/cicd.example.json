@@ -10,6 +10,7 @@
         "/opt/maqamstay-staging/customer/deploy/docker-compose.staging.yml",
         "/opt/maqamstay-staging/deployment/phase3b-customer.override.yml"
       ],
+      "requiredProfiles": ["release"],
       "imagesFile": "/opt/maqamstay-staging/deployment/customer-images.env",
       "runtimeServices": ["customer"],
       "imageSelectors": {
@@ -42,6 +43,7 @@
       "composeFiles": [
         "/opt/maqamstay-staging/inventory/deploy/docker-compose.staging.yml"
       ],
+      "requiredProfiles": ["release"],
       "imagesFile": "/opt/maqamstay-staging/deployment/inventory-images.env",
       "runtimeServices": ["inventory-api", "inventory-admin"],
       "imageSelectors": {

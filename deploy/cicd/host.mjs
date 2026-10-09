@@ -45,9 +45,9 @@ async function run(bin, args, options = {}) {
   });
   return stdout.trim();
 }
-async function protectedPath(path, directory = false) {
+export async function protectedPath(path, directory = false, inspect = lstat) {
   if (!isAbsolute(path)) throw new Error("Absolute path required");
-  const info = await lstat(path);
+  const info = await inspect(path);
   if (
     info.isSymbolicLink() ||
     info.uid !== 0 ||
@@ -55,11 +55,11 @@ async function protectedPath(path, directory = false) {
     (directory ? !info.isDirectory() : !info.isFile())
   )
     throw new Error("Unsafe protected path");
-  if (path !== "/") await protectedPath(dirname(path), true);
+  if (path !== "/") await protectedPath(dirname(path), true, inspect);
   return info;
 }
-async function privateEnv(path) {
-  const info = await protectedPath(path);
+export async function privateEnv(path, inspect = lstat) {
+  const info = await protectedPath(path, false, inspect);
   if (info.mode & 0o077 || info.nlink > 1)
     throw new Error("Environment must be root-only and unaliased");
 }
@@ -236,6 +236,7 @@ export async function createHost(
   await privateEnv(definition.lockFile);
   selectorSource(await readFile(definition.imagesFile, "utf8"), definition);
   const base = composeArguments(definition);
+  const profiled = composeArguments(definition, true);
   const environment = {
     PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
     HOME: "/root",
@@ -393,10 +394,20 @@ export async function createHost(
       if (app !== input.app)
         throw new Error("Cross-deployment preflight rejected");
       await safety();
-      await compose("config", "--quiet");
+      await run("/usr/bin/docker", [...profiled, "config", "--quiet"], {
+        env: environment,
+      });
       // Capture only in memory; rendered env/configuration is NEVER printed.
       composeTopology(
-        JSON.parse(await compose("config", "--format", "json")),
+        JSON.parse(
+          await run(
+            "/usr/bin/docker",
+            [...profiled, "config", "--format", "json"],
+            {
+              env: environment,
+            },
+          ),
+        ),
         definition,
       );
       if (mode !== "validate") await run("/usr/sbin/nginx", ["-t"]);
@@ -481,7 +492,7 @@ export async function createHost(
         await run(
           "/usr/bin/docker",
           [
-            ...base,
+            ...profiled,
             "run",
             "--rm",
             "--name",
