@@ -1,27 +1,24 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { promisify, isDeepStrictEqual } from "node:util";
 import { readFile, rename, stat, lstat, open } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import {
-  request,
-  deploy,
+  operation,
+  execute,
   images,
   immutable,
   rollbackReference,
 } from "./deployment.mjs";
+import {
+  configuration,
+  composeArguments,
+  selectorSource,
+  composeTopology,
+} from "./configuration.mjs";
 
 const exec = promisify(execFile);
 const CONFIG = "/etc/maqamstay-staging/cicd.json";
-const KEYS = {
-  customer: "CUSTOMER_IMAGE",
-  "inventory-api": "INVENTORY_API_IMAGE",
-  "inventory-admin": "INVENTORY_ADMIN_IMAGE",
-};
-const PUBLIC = "https://maqamstay-staging.169-58-95-12.sslip.io";
-const CRM = "https://maqamstay-crm.169-58-95-12.sslip.io";
-const ADMIN = "https://maqamstay-admin.169-58-95-12.sslip.io";
 const API = "https://maqamstay-api.169-58-95-12.sslip.io";
-const MEDIA = "/opt/maqamstay-staging/data/media";
 let interrupted = false;
 process.on("SIGTERM", () => {
   interrupted = true;
@@ -63,7 +60,8 @@ async function protectedPath(path, directory = false) {
 }
 async function privateEnv(path) {
   const info = await protectedPath(path);
-  if (info.mode & 0o077) throw new Error("Environment must be root-only");
+  if (info.mode & 0o077 || info.nlink > 1)
+    throw new Error("Environment must be root-only and unaliased");
 }
 export async function atomic(path, value) {
   const temp = `${path}.pending`;
@@ -115,6 +113,7 @@ async function probe(
 ) {
   try {
     const result = await run("/usr/bin/curl", [
+      "--disable", // First option: ignore curlrc credentials/configuration.
       "--silent",
       "--request",
       method,
@@ -150,37 +149,110 @@ function location(head) {
   return head.match(/^location:\s*(.+)$/im)?.[1].trim();
 }
 
-async function main() {
-  if (process.getuid?.() !== 0 || process.argv.length !== 6)
-    throw new Error("Restricted root entry point required");
-  const input = request(process.argv.slice(2));
-  await protectedPath(CONFIG);
-  const config = JSON.parse(await readFile(CONFIG, "utf8"));
-  if (
-    config.minimumAvailableRamMiB !== undefined &&
-    (!Number.isInteger(config.minimumAvailableRamMiB) ||
-      config.minimumAvailableRamMiB < 512)
-  )
-    throw new Error("Invalid RAM safety threshold");
-  if (
-    !/^[a-z0-9][a-z0-9_-]+$/.test(config.project) ||
-    !Array.isArray(config.composeFiles) ||
-    config.composeFiles.length < 2
-  )
-    throw new Error("Invalid configuration");
-  for (const path of [config.imagesFile, ...config.composeFiles])
-    await protectedPath(path);
-  await protectedPath(config.stateDirectory, true);
-  const base = [
-    "compose",
-    "--project-name",
-    config.project,
-    "--env-file",
-    config.imagesFile,
-    ...config.composeFiles.flatMap((file) => ["-f", file]),
+// Internal readiness and public ingress policy are separate acceptance checks.
+// ServiceGuard + integration tests require 401 without X-API-Key. The reviewed
+// catalog ingress allows GET only: protected GET paths are 404, writes are 405.
+// No application credential, cookie, request body or response body is exported.
+export async function inventoryApiHealth(
+  check = probe,
+  health = {
+    localApiOrigin: "http://127.0.0.1:4000",
+    publicCatalogOrigin: API,
+  },
+) {
+  const API = health.publicCatalogOrigin;
+  const checks = [
+    [health.localApiOrigin + "/health/live", 200, "GET"],
+    [health.localApiOrigin + "/health/ready", 200, "GET"],
+    [API + "/api/v1/public/hotels", 401, "GET"],
+    ...[
+      "/health/live",
+      "/health/ready",
+      "/docs",
+      "/docs-json",
+      "/api/v1/admin/hotels",
+      "/api/v1/auth/me",
+      "/api/v1/auth/login",
+    ].map((path) => [API + path, 404, "GET"]),
+    ...["POST", "PUT", "PATCH", "DELETE"].map((method) => [
+      API + "/api/v1/public/hotels",
+      405,
+      method,
+    ]),
   ];
-  const compose = (...args) => run("/usr/bin/docker", [...base, ...args]);
+  for (const [url, status, method] of checks) {
+    if (!(await check(url, status, {}, (head) => !location(head), method)))
+      return false;
+  }
+  return true;
+}
+
+const hostIO = {
+  run,
+  readFile,
+  stat,
+  lstat,
+  protectedPath,
+  privateEnv,
+  selectors,
+  atomic,
+  probe,
+};
+export async function createHost(
+  document,
+  definition,
+  input,
+  mode,
+  overrides = {},
+) {
+  const {
+    run,
+    readFile,
+    stat,
+    lstat,
+    protectedPath,
+    privateEnv,
+    selectors,
+    atomic,
+    probe,
+  } = { ...hostIO, ...overrides };
+  const config = configuration(document);
+  if (
+    !["deploy", "validate"].includes(mode) ||
+    definition.repository !== input.repository ||
+    !isDeepStrictEqual(definition, config.deployments[input.app])
+  )
+    throw new Error("Cross-repository deployment rejected");
+  const KEYS = definition.imageSelectors;
+  const PUBLIC = definition.health.publicOrigin;
+  const CRM = definition.health.crmOrigin;
+  const ADMIN = definition.health.publicAdminOrigin;
+  const MEDIA = definition.media?.hostPath;
+  await privateEnv(definition.imagesFile);
+  for (const path of definition.composeFiles) await protectedPath(path);
+  for (const path of new Set(Object.values(definition.environmentFiles)))
+    await privateEnv(path);
+  await protectedPath(config.stateDirectory, true);
+  await privateEnv(definition.lockFile);
+  selectorSource(await readFile(definition.imagesFile, "utf8"), definition);
+  const base = composeArguments(definition);
+  const environment = {
+    PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
+    HOME: "/root",
+    ...definition.environmentFiles,
+  };
+  const compose = (...args) =>
+    run("/usr/bin/docker", [...base, ...args], { env: environment });
+  const runtime = (service) => {
+    if (!definition.runtimeServices.includes(service))
+      throw new Error("Cross-deployment service rejected");
+  };
   const id = async (service) => {
+    if (
+      !definition.runtimeServices.includes(service) &&
+      service !== definition.databaseService
+    )
+      throw new Error("Cross-deployment inspection rejected");
     const value = await compose("ps", "-q", service);
     if (!/^[a-f0-9]{12,64}$/.test(value))
       throw new Error("Exactly one existing container required");
@@ -190,10 +262,19 @@ async function main() {
       '{{index .Config.Labels "com.docker.compose.project"}}',
       value,
     ]);
-    if (project !== config.project) throw new Error("Wrong Compose project");
+    if (project !== definition.project)
+      throw new Error("Wrong Compose project");
+    const label = await run("/usr/bin/docker", [
+      "inspect",
+      "--format",
+      '{{index .Config.Labels "com.docker.compose.service"}}',
+      value,
+    ]);
+    if (label !== service) throw new Error("Wrong Compose service");
     return value;
   };
   let mediaIdentity;
+  let databaseIdentity;
   let recovering = false;
   const checkInterrupt = () => {
     if (interrupted && !recovering) throw new Error("Interrupted");
@@ -207,6 +288,39 @@ async function main() {
       container,
     ]);
     return health === "true healthy";
+  };
+  const database = async () => {
+    const container = await id("postgres");
+    const identity = await run("/usr/bin/docker", [
+      "inspect",
+      "--format",
+      "{{json .Mounts}} {{json .NetworkSettings.Networks}}",
+      container,
+    ]);
+    if (
+      databaseIdentity &&
+      (databaseIdentity.container !== container ||
+        databaseIdentity.identity !== identity)
+    )
+      throw new Error("PostgreSQL storage/network identity changed");
+    databaseIdentity ??= { container, identity };
+    return healthyContainer("postgres");
+  };
+  const inventoryNetwork = async (service) => {
+    const networks = JSON.parse(
+      await run("/usr/bin/docker", [
+        "inspect",
+        "--format",
+        "{{json .NetworkSettings.Networks}}",
+        await id(service),
+      ]),
+    );
+    if (
+      !networks ||
+      Object.keys(networks).length !== 1 ||
+      !Object.hasOwn(networks, "maqamstay_inventory_app")
+    )
+      throw new Error("Inventory must remain on its own network");
   };
   const media = async () => {
     const info = await stat(MEDIA);
@@ -225,11 +339,13 @@ async function main() {
         (m) =>
           m.Type === "bind" &&
           m.Source === MEDIA &&
-          m.Destination === "/data/media" &&
+          m.Destination === definition.media.containerPath &&
           m.RW,
       )
     )
       throw new Error("Media bind missing");
+    await inventoryNetwork("inventory-api");
+    if (mode === "validate") return;
     await run("/usr/bin/docker", [
       "exec",
       await id("inventory-api"),
@@ -248,9 +364,9 @@ async function main() {
     const paths = [
       ...new Set([
         root,
-        dirname(config.imagesFile),
+        dirname(definition.imagesFile),
         config.stateDirectory,
-        MEDIA,
+        ...(MEDIA ? [MEDIA] : []),
       ]),
     ];
     for (const path of paths) {
@@ -274,37 +390,17 @@ async function main() {
     now: () => new Date().toISOString(),
     safety,
     preflight: async (app) => {
+      if (app !== input.app)
+        throw new Error("Cross-deployment preflight rejected");
       await safety();
-      await privateEnv("/etc/maqamstay-staging/customer.env");
-      await privateEnv("/etc/maqamstay-staging/inventory.env");
-      // Ensure selectors point to the existing files without printing Compose config.
-      const source = await readFile(config.imagesFile, "utf8");
-      for (const [key, path] of Object.entries({
-        CUSTOMER_ENV_FILE: "/etc/maqamstay-staging/customer.env",
-        INVENTORY_API_ENV_FILE: "/etc/maqamstay-staging/inventory.env",
-      })) {
-        if (
-          source
-            .split("\n")
-            .filter((line) => line.trimEnd() === `${key}=${path}`).length !== 1
-        )
-          throw new Error("Unexpected runtime env selector");
-      }
-      for (const key of [
-        "CUSTOMER_RELEASE_ENV_FILE",
-        "INVENTORY_RELEASE_ENV_FILE",
-        "POSTGRES_ENV_FILE",
-      ]) {
-        const values = source
-          .split("\n")
-          .filter((line) => line.startsWith(`${key}=`));
-        if (values.length !== 1)
-          throw new Error("Missing protected job env selector");
-        await privateEnv(values[0].slice(key.length + 1).trim());
-      }
       await compose("config", "--quiet");
-      await run("/usr/sbin/nginx", ["-t"]);
-      if (app === "customer" && !(await healthyContainer("postgres")))
+      // Capture only in memory; rendered env/configuration is NEVER printed.
+      composeTopology(
+        JSON.parse(await compose("config", "--format", "json")),
+        definition,
+      );
+      if (mode !== "validate") await run("/usr/sbin/nginx", ["-t"]);
+      if (app === "customer" && !(await database()))
         throw new Error("PostgreSQL not healthy");
       if (app === "inventory") {
         const info = await lstat(MEDIA);
@@ -315,6 +411,7 @@ async function main() {
       }
     },
     previous: async (service) => {
+      runtime(service);
       if (!(await healthyContainer(service)))
         throw new Error("Current service must be healthy");
       const container = await id(service);
@@ -346,10 +443,13 @@ async function main() {
       return previous;
     },
     journal: async (report) => {
+      if (mode !== "deploy") throw new Error("Validation is read-only");
       const path = `${config.stateDirectory}/${input.app}-${input.commit}.json`;
       await atomic(path, JSON.stringify(report, null, 2) + "\n");
     },
     pull: async (reference) => {
+      if (mode !== "deploy" || !input.references.includes(reference))
+        throw new Error("Unapproved image mutation");
       checkInterrupt();
       await run("/usr/bin/docker", ["pull", reference]);
       const user = await run("/usr/bin/docker", [
@@ -370,8 +470,10 @@ async function main() {
         throw new Error("Image identity differs from reviewed publication");
     },
     release: async (value) => {
+      if (mode !== "deploy" || value !== input)
+        throw new Error("Unapproved release mutation");
       checkInterrupt();
-      if (value.app === "customer" && !(await healthyContainer("postgres")))
+      if (value.app === "customer" && !(await database()))
         throw new Error("PostgreSQL lost health");
       // Override only this job's image. Other application's selectors remain intact.
       const jobName = `maqamstay-cicd-${value.app}-${value.commit}`;
@@ -388,22 +490,13 @@ async function main() {
             "--pull",
             "never",
             "-T",
-            ...(value.app === "customer"
-              ? ["customer-release", "npm", "run", "db:migrate"]
-              : [
-                  "inventory-release",
-                  "node",
-                  "dist/apps/api/src/cli.js",
-                  "indexes",
-                ]),
+            definition.release.service,
+            ...definition.release.command,
           ],
           {
             env: {
-              PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
-              HOME: "/root",
-              [value.app === "customer"
-                ? "CUSTOMER_RELEASE_IMAGE"
-                : "INVENTORY_API_IMAGE"]:
+              ...environment,
+              [definition.release.imageSelector]:
                 value.references[value.app === "customer" ? 1 : 0],
             },
             timeout: 300000,
@@ -422,10 +515,23 @@ async function main() {
       }
     },
     select: async (selected, value) => {
+      if (mode !== "deploy") throw new Error("Validation is read-only");
+      for (const [service, reference] of Object.entries(selected)) {
+        runtime(service);
+        if (
+          !rollbackReference(
+            reference,
+            images[input.app][definition.runtimeServices.indexOf(service)],
+          )
+        )
+          throw new Error("Cross-deployment image rejected");
+      }
+      if (value && value !== input)
+        throw new Error("Cross-deployment image selection rejected");
       // Rollback must proceed even after SIGTERM; future deployments still fail fast.
       recovering = !value;
       checkInterrupt();
-      await selectors(config.imagesFile, {
+      await selectors(definition.imagesFile, {
         ...Object.fromEntries(
           Object.entries(selected).map(([s, ref]) => [KEYS[s], ref]),
         ),
@@ -435,6 +541,8 @@ async function main() {
       });
     },
     recreate: async (service, rollback = false) => {
+      if (mode !== "deploy") throw new Error("Validation is read-only");
+      runtime(service);
       recovering = rollback;
       checkInterrupt();
       await compose(
@@ -449,6 +557,8 @@ async function main() {
       );
     },
     health: async (service, rollback = false) => {
+      if (mode !== "deploy") throw new Error("Validation is read-only");
+      runtime(service);
       recovering = rollback;
       const deadline = Date.now() + 90000;
       do {
@@ -456,7 +566,8 @@ async function main() {
         let ok = false;
         try {
           ok = await healthyContainer(service);
-          const expected = (await readFile(config.imagesFile, "utf8"))
+          if (input.app === "inventory") await inventoryNetwork(service);
+          const expected = (await readFile(definition.imagesFile, "utf8"))
             .split("\n")
             .find((line) => line.startsWith(`${KEYS[service]}=`))
             ?.slice(KEYS[service].length + 1)
@@ -478,7 +589,8 @@ async function main() {
           if (service === "customer") {
             ok =
               ok &&
-              (await probe("http://127.0.0.1:3000/", 200, {
+              (await database()) &&
+              (await probe(definition.health.localOrigin + "/", 200, {
                 Host: new URL(PUBLIC).host,
               })) &&
               (await probe(PUBLIC + "/")) &&
@@ -526,16 +638,11 @@ async function main() {
               ));
           } else if (service === "inventory-api") {
             await media();
-            ok =
-              ok &&
-              (await probe("http://127.0.0.1:4000/health/live")) &&
-              (await probe("http://127.0.0.1:4000/health/ready")) &&
-              (await probe(API + "/health/live")) &&
-              (await probe(API + "/health/ready"));
+            ok = ok && (await inventoryApiHealth(probe, definition.health));
           } else {
             ok =
               ok &&
-              (await probe("http://127.0.0.1:3100/login")) &&
+              (await probe(definition.health.localAdminOrigin + "/login")) &&
               (await probe(ADMIN + "/login"));
           }
         } catch {
@@ -547,7 +654,20 @@ async function main() {
       return false;
     },
   };
-  const report = await deploy(input, host);
+  host.currentHealth = async (service) => {
+    runtime(service);
+    if (input.app === "inventory") await inventoryNetwork(service);
+    return healthyContainer(service);
+  };
+  return host;
+}
+async function main() {
+  if (process.getuid?.() !== 0)
+    throw new Error("Restricted root entry point required");
+  operation(process.argv.slice(2));
+  await privateEnv(CONFIG);
+  const document = configuration(JSON.parse(await readFile(CONFIG, "utf8")));
+  const report = await execute(document, process.argv.slice(2), createHost);
   process.stdout.write(JSON.stringify(report) + "\n");
   if (report.status !== "succeeded") process.exitCode = 1;
 }
@@ -555,7 +675,7 @@ async function main() {
 if (process.argv[1]?.replaceAll("\\", "/").endsWith("/host.mjs")) {
   main().catch(() => {
     process.stderr.write(
-      "Deployment preflight or evidence persistence failed; consult protected VPS journal.\n",
+      "Host configuration or operation failed; review protected setup and deployment evidence.\n",
     );
     process.exitCode = 1;
   });

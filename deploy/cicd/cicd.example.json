@@ -1,10 +1,75 @@
 {
-  "project": "maqamstay-staging",
-  "imagesFile": "/etc/maqamstay-staging/images.env",
-  "composeFiles": [
-    "/opt/maqamstay-staging/compose/customer.yml",
-    "/opt/maqamstay-staging/compose/inventory.yml"
-  ],
+  "version": 2,
   "stateDirectory": "/var/lib/maqamstay-cicd",
-  "minimumAvailableRamMiB": 512
+  "minimumAvailableRamMiB": 512,
+  "deployments": {
+    "customer": {
+      "repository": "shhassan699-maker/MaqamStay",
+      "project": "maqamstay-customer-staging",
+      "composeFiles": [
+        "/opt/maqamstay-staging/customer/deploy/docker-compose.staging.yml",
+        "/opt/maqamstay-staging/deployment/phase3b-customer.override.yml"
+      ],
+      "imagesFile": "/opt/maqamstay-staging/deployment/customer-images.env",
+      "runtimeServices": ["customer"],
+      "imageSelectors": {
+        "customer": "CUSTOMER_IMAGE",
+        "customer-release": "CUSTOMER_RELEASE_IMAGE"
+      },
+      "environmentFiles": {
+        "CUSTOMER_ENV_FILE": "/etc/maqamstay-staging/customer.env",
+        "CUSTOMER_RELEASE_ENV_FILE": "/etc/maqamstay-staging/customer-release.env",
+        "POSTGRES_ENV_FILE": "/etc/maqamstay-staging/postgres.env"
+      },
+      "lockFile": "/var/lib/maqamstay-cicd/deploy.lock",
+      "databaseService": "postgres",
+      "release": {
+        "service": "customer-release",
+        "imageSelector": "CUSTOMER_RELEASE_IMAGE",
+        "command": ["npm", "run", "db:migrate"]
+      },
+      "health": {
+        "profile": "customer-crm-v1",
+        "localOrigin": "http://127.0.0.1:3000",
+        "publicOrigin": "https://maqamstay-staging.169-58-95-12.sslip.io",
+        "crmOrigin": "https://maqamstay-crm.169-58-95-12.sslip.io"
+      },
+      "media": null
+    },
+    "inventory": {
+      "repository": "shhassan699-maker/MaqamStay-Inventory-Admin",
+      "project": "maqamstay-staging",
+      "composeFiles": [
+        "/opt/maqamstay-staging/inventory/deploy/docker-compose.staging.yml"
+      ],
+      "imagesFile": "/opt/maqamstay-staging/deployment/inventory-images.env",
+      "runtimeServices": ["inventory-api", "inventory-admin"],
+      "imageSelectors": {
+        "inventory-api": "INVENTORY_API_IMAGE",
+        "inventory-admin": "INVENTORY_ADMIN_IMAGE"
+      },
+      "environmentFiles": {
+        "INVENTORY_API_ENV_FILE": "/etc/maqamstay-staging/inventory.env",
+        "INVENTORY_RELEASE_ENV_FILE": "/etc/maqamstay-staging/inventory.env"
+      },
+      "lockFile": "/var/lib/maqamstay-cicd/deploy.lock",
+      "databaseService": null,
+      "release": {
+        "service": "inventory-release",
+        "imageSelector": "INVENTORY_API_IMAGE",
+        "command": ["node", "dist/apps/api/src/cli.js", "indexes"]
+      },
+      "health": {
+        "profile": "inventory-catalog-v1",
+        "localApiOrigin": "http://127.0.0.1:4000",
+        "localAdminOrigin": "http://127.0.0.1:3100",
+        "publicAdminOrigin": "https://maqamstay-admin.169-58-95-12.sslip.io",
+        "publicCatalogOrigin": "https://maqamstay-api.169-58-95-12.sslip.io"
+      },
+      "media": {
+        "hostPath": "/opt/maqamstay-staging/data/media",
+        "containerPath": "/data/media"
+      }
+    }
+  }
 }

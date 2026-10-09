@@ -46,6 +46,24 @@ test("actions are immutable, CI audits all production severities, and publicatio
       publisher,
     ),
   );
+  // Live application secrets are VPS-only in every job, including deployment.
+  // CI integration tests generate their own disposable credentials locally.
+  assert(
+    !/DATABASE_URL|MONGODB_URI|SESSION_SECRET|CATALOG_API_KEY|catalog\.read|STORAGE_(?:ACCESS|SECRET)_KEY|AWS_(?:SECRET_ACCESS|ACCESS)_KEY/.test(
+      JSON.stringify([ci, pipeline]),
+    ),
+  );
+  const allowedSecrets = new Set([
+    "GITHUB_TOKEN",
+    "STAGING_VPS_HOST",
+    "STAGING_VPS_USER",
+    "STAGING_VPS_SSH_KEY",
+    "STAGING_VPS_KNOWN_HOSTS",
+  ]);
+  for (const [, name] of JSON.stringify([ci, pipeline]).matchAll(
+    /secrets\.([A-Za-z0-9_]+)/g,
+  ))
+    assert(allowedSecrets.has(name), "Unapproved workflow secret reference");
   const builds = pipeline.jobs.publish.steps.filter((step) =>
     step.uses?.startsWith("docker/build-push-action"),
   );
@@ -103,6 +121,12 @@ test("shell parsers reject command injection and invalid requests before any SSH
   for (const original of [
     "id",
     "deploy customer $(id) x y",
+    "validate unknown " + "a".repeat(40),
+    "validate customer short",
+    "validate customer $(id)",
+    "validate customer " + "a".repeat(40) + " customer",
+    "validate inventory " + "a".repeat(40) + " /tmp/compose.yml",
+    "validate customer " + "a".repeat(40) + "; id",
     "deploy inventory " +
       "a".repeat(40) +
       " sha256:" +
@@ -173,7 +197,11 @@ test("host operations explicitly exclude dependencies/builds and preserve the me
   assert(host.includes('"--no-build"'));
   assert(host.includes('"--force-recreate"'));
   assert(host.includes("12 * 1024 ** 3"));
-  assert(host.includes("/opt/maqamstay-staging/data/media"));
+  assert(host.includes("definition.media?.hostPath"));
+  const definition = JSON.parse(
+    readFileSync("deploy/cicd/cicd.example.json", "utf8"),
+  ).deployments.inventory;
+  assert.equal(definition.media.hostPath, "/opt/maqamstay-staging/data/media");
   assert(
     !/\bprune\b|['"]down['"]|syncIndexes|migrate reset|nginx.*reload/.test(
       host,
@@ -182,5 +210,7 @@ test("host operations explicitly exclude dependencies/builds and preserve the me
   assert(host.includes("CONFIRM_ENVIRONMENT") === false); // Fixed by the reviewed release Compose service.
   const entry = readFileSync("deploy/cicd/entry.sh", "utf8");
   assert(entry.includes("/var/lib/maqamstay-cicd/deploy.lock"));
-  assert(entry.includes("--close"));
+  assert(entry.includes("--exclusive"));
+  assert(entry.includes('exec 9< "$lock"'));
+  assert(entry.includes("9<&-"));
 });

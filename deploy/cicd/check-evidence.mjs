@@ -10,6 +10,7 @@ const evidence = JSON.parse(readFileSync("deployment-evidence.json", "utf8"));
 if (
   evidence.commit !== input.commit ||
   evidence.app !== input.app ||
+  evidence.repository !== input.repository ||
   JSON.stringify(evidence.references) !== JSON.stringify(input.references)
 )
   throw new Error("Evidence does not match published images");

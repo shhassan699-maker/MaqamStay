@@ -1,5 +1,10 @@
 // Pure deployment state machine. Host commands are supplied by host.mjs; tests
 // supply a simulator and never open a network connection or invoke Docker.
+import {
+  repositories,
+  configuration,
+  selectDeployment,
+} from "./configuration.mjs";
 export const images = {
   customer: ["maqamstay-customer", "maqamstay-customer-release"],
   inventory: ["maqamstay-inventory-api", "maqamstay-inventory-admin"],
@@ -20,11 +25,53 @@ export function request(args) {
   }
   return {
     app,
+    repository: repositories[app],
     commit,
     references: images[app].map(
       (name, i) => `ghcr.io/shhassan699-maker/${name}@${digests[i]}`,
     ),
   };
+}
+export function operation(args) {
+  const [mode, app, commit, ...digests] = args;
+  if (mode === "deploy")
+    return { mode, input: request([app, commit, ...digests]) };
+  if (
+    mode === "validate" &&
+    args.length === 3 &&
+    Object.hasOwn(repositories, app) &&
+    /^[a-f0-9]{40}$/.test(commit ?? "")
+  )
+    return { mode, input: { app, repository: repositories[app], commit } };
+  throw new Error("Invalid restricted host operation");
+}
+export async function execute(document, args, factory) {
+  const { mode, input } = operation(args);
+  const config = configuration(document);
+  const definition = selectDeployment(config, input.app);
+  const host = await factory(config, definition, input, mode);
+  if (mode === "deploy") return deploy(input, host);
+  const report = {
+    operation: "validate",
+    ...input,
+    startedAt: host.now(),
+    finishedAt: null,
+    status: "failed",
+    health: {},
+    mutated: false,
+  };
+  try {
+    await host.preflight(input.app);
+    for (const service of definition.runtimeServices) {
+      report.health[service] = await host.currentHealth(service);
+    }
+    if (Object.values(report.health).every(Boolean))
+      report.status = "succeeded";
+  } catch {
+    // Sanitized failure only. Validation never calls the mutation/journal API.
+  }
+  report.finishedAt = host.now();
+  return report;
 }
 export function immutable(reference, name) {
   return (

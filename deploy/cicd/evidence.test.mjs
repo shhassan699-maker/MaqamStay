@@ -59,6 +59,7 @@ for (const app of ["customer", "inventory"]) {
       };
       assert.equal(check(report), 0);
       assert.equal(check({ ...report, commit: "c".repeat(40) }), 1);
+      assert.equal(check({ ...report, repository: "other/repository" }), 1);
       assert.equal(
         check({ ...report, status: "failed", rollback: report.previous }),
         1,
