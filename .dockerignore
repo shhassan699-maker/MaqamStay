@@ -22,6 +22,8 @@ playwright-report
 docs/screenshots
 .vscode
 .idea
+.cicd-local
+deployment-evidence.json
 backups
 uploads
 data

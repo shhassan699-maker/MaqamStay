@@ -52,3 +52,5 @@ playwright-report/
 *.key
 *.p12
 *.pfx
+.cicd-local/
+deployment-evidence.json

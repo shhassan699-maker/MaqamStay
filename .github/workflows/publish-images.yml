@@ -1,71 +1,129 @@
-name: Publish reviewed staging images
+name: Customer staging CI/CD
 on:
-  workflow_dispatch:
-    inputs:
-      site_url:
-        description: Public staging site URL
-        required: true
-        default: https://staging.maqamstay.com
-        type: string
-      whatsapp_number:
-        description: Public support number, digits only (8-15)
-        required: true
-        type: string
+  push:
+    branches:
+      - staging
 permissions:
   contents: read
+concurrency:
+  group: maqamstay-staging-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   verify:
     uses: ./.github/workflows/ci.yml
   publish:
     needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    environment: ghcr-staging-publication
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: maqamstay-customer
-            file: deploy/Dockerfile
-            target: runtime
-            public_args: true
-          - image: maqamstay-customer-release
-            file: deploy/Dockerfile
-            target: release
-            public_args: false
+    outputs:
+      first_digest: ${{ steps.runtime_existing.outputs.digest || steps.runtime.outputs.digest }}
+      second_digest: ${{ steps.release_existing.outputs.digest || steps.release.outputs.digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check immutable runtime publication
+        id: runtime_existing
+        env:
+          COMMIT: ${{ github.sha }}
+        run: bash deploy/cicd/existing-image.sh maqamstay-customer "$COMMIT"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
-        id: build
+        if: steps.runtime_existing.outputs.exists != 'true'
+        id: runtime
         with:
           context: .
-          file: ${{ matrix.file }}
-          target: ${{ matrix.target }}
+          file: deploy/Dockerfile
+          target: runtime
+          platforms: linux/amd64
           push: true
-          tags: ghcr.io/shhassan699-maker/${{ matrix.image }}:${{ github.sha }}
+          tags: ghcr.io/shhassan699-maker/maqamstay-customer:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
-            ${{ matrix.public_args && format('NEXT_PUBLIC_SITE_URL={0}', inputs.site_url) || '' }}
-            ${{ matrix.public_args && format('NEXT_PUBLIC_WHATSAPP_NUMBER={0}', inputs.whatsapp_number) || '' }}
+            NEXT_PUBLIC_SITE_URL=https://maqamstay-staging.169-58-95-12.sslip.io
+            NEXT_PUBLIC_WHATSAPP_NUMBER=${{ vars.STAGING_PUBLIC_WHATSAPP_NUMBER }}
           provenance: mode=max
           sbom: true
-      - name: Record immutable artifact reference
+      - name: Check immutable release publication
+        id: release_existing
         env:
-          IMAGE: ghcr.io/shhassan699-maker/${{ matrix.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
           COMMIT: ${{ github.sha }}
-        run: |
-          node -e "const f=require('fs');const e=process.env;if(!/^sha256:[a-f0-9]{64}$/.test(e.DIGEST))throw Error('Missing immutable digest');f.writeFileSync('image-digest.json',JSON.stringify({commit:e.COMMIT,tag:e.IMAGE+':'+e.COMMIT,reference:e.IMAGE+'@'+e.DIGEST},null,2))"
+        run: bash deploy/cicd/existing-image.sh maqamstay-customer-release "$COMMIT"
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        if: steps.release_existing.outputs.exists != 'true'
+        id: release
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: release
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/shhassan699-maker/maqamstay-customer-release:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - name: Record image publication evidence
+        env:
+          COMMIT: ${{ github.sha }}
+          FIRST_DIGEST: ${{ steps.runtime_existing.outputs.digest || steps.runtime.outputs.digest }}
+          SECOND_DIGEST: ${{ steps.release_existing.outputs.digest || steps.release.outputs.digest }}
+        run: node deploy/cicd/image-evidence.mjs customer
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ matrix.image }}-${{ github.sha }}
-          path: image-digest.json
-          retention-days: 30
+          name: customer-images-${{ github.sha }}
+          path: image-evidence.json
+          retention-days: 90
+          if-no-files-found: error
+  deploy:
+    needs: [verify, publish]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: staging
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Refuse a superseded staging commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          head_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/staging" --jq '.object.sha')
+          test "$head_sha" = "$COMMIT"
+      - name: Deploy immutable images using restricted SSH
+        env:
+          STAGING_VPS_HOST: ${{ secrets.STAGING_VPS_HOST }}
+          STAGING_VPS_USER: ${{ secrets.STAGING_VPS_USER }}
+          STAGING_VPS_SSH_KEY: ${{ secrets.STAGING_VPS_SSH_KEY }}
+          STAGING_VPS_KNOWN_HOSTS: ${{ secrets.STAGING_VPS_KNOWN_HOSTS }}
+          COMMIT: ${{ github.sha }}
+          FIRST_DIGEST: ${{ needs.publish.outputs.first_digest }}
+          SECOND_DIGEST: ${{ needs.publish.outputs.second_digest }}
+        run: bash deploy/cicd/ssh-deploy.sh customer "$COMMIT" "$FIRST_DIGEST" "$SECOND_DIGEST"
+      - name: Validate deployment evidence
+        if: always()
+        env:
+          COMMIT: ${{ github.sha }}
+          FIRST_DIGEST: ${{ needs.publish.outputs.first_digest }}
+          SECOND_DIGEST: ${{ needs.publish.outputs.second_digest }}
+        run: node deploy/cicd/check-evidence.mjs customer
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: customer-deployment-${{ github.sha }}-${{ github.run_attempt }}
+          path: deployment-evidence.json
+          retention-days: 90
+          if-no-files-found: warn

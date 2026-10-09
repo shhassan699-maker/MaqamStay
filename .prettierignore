@@ -3,3 +3,4 @@ deploy/nginx/**
 maqamstay-inventory-admin/**
 .next/**
 node_modules/**
+.cicd-local

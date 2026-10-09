@@ -1,7 +1,7 @@
 name: Customer CI and isolated images
 on:
   push:
-    branches: [main, feature/staging-images, feature/separate-customer-crm]
+    branches: [staging]
   pull_request:
   workflow_call:
 permissions:
@@ -11,11 +11,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      NEXT_PUBLIC_SITE_URL: https://staging.maqamstay.com
+      NEXT_PUBLIC_SITE_URL: https://maqamstay-staging.169-58-95-12.sslip.io
       NEXT_PUBLIC_WHATSAPP_NUMBER: "10000000000"
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "24.21.0"
@@ -23,7 +25,7 @@ jobs:
       - name: Verify pinned image toolchain
         run: test "$(node --version)" = "v24.21.0" && test "$(npm --version)" = "11.19.0"
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --omit=dev
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run format:check
@@ -32,6 +34,10 @@ jobs:
       - run: node deploy/verify-customer-crm.mjs
       - run: node deploy/verify-bundles.mjs
       - run: node --test deploy/customer-crm.test.mjs deploy/image-verification.test.mjs deploy/repository-verification.test.mjs
+      - run: node --test deploy/cicd/*.test.mjs
+      - run: node deploy/cicd/verify-source.mjs
+      - name: Validate workflow and deployment shells
+        run: bash deploy/cicd/validate.sh
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - name: Build both images without server secrets
         run: |

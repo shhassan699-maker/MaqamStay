@@ -92,7 +92,7 @@ test("staging Compose has executable resource limits and private database separa
   assert.deepEqual(config.services.customer.ports, ["127.0.0.1:3000:3000"]);
   assert.equal(
     config.services.customer.environment.INVENTORY_API_URL,
-    "https://inventory-api-staging.maqamstay.com",
+    undefined,
   );
   if (inventory) {
     const other = yaml.load(

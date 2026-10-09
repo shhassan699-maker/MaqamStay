@@ -13,6 +13,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "maqamstay-inventory-admin/**",
+    ".cicd-local/**",
   ]),
 ]);
 

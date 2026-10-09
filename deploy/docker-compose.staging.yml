@@ -7,7 +7,6 @@ services:
     env_file: ${CUSTOMER_ENV_FILE:?Set an absolute runtime environment file path}
     environment:
       NODE_ENV: production
-      INVENTORY_API_URL: https://inventory-api-staging.maqamstay.com
       INVENTORY_TIMEOUT_MS: "5000"
     ports: ["127.0.0.1:3000:3000"]
     networks: [customer_app, customer_db]

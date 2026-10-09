@@ -1,0 +1,10 @@
+{
+  "project": "maqamstay-staging",
+  "imagesFile": "/etc/maqamstay-staging/images.env",
+  "composeFiles": [
+    "/opt/maqamstay-staging/compose/customer.yml",
+    "/opt/maqamstay-staging/compose/inventory.yml"
+  ],
+  "stateDirectory": "/var/lib/maqamstay-cicd",
+  "minimumAvailableRamMiB": 512
+}
